@@ -2,9 +2,10 @@
 Pydantic schemas for document API requests/responses.
 """
 from datetime import datetime
-from typing import Optional, Literal, Union
+from typing import Optional, Literal, Union, List
 from uuid import UUID
 from pydantic import BaseModel, Field, ConfigDict
+from app.schemas.tag import TagInstanceWithDefinition
 
 
 # Folder Schemas
@@ -113,6 +114,7 @@ class DocumentResponse(BaseModel):
     created_by: Union[str, UUID]
     user_id: Union[str, UUID]
     version: int
+    tags: List[TagInstanceWithDefinition] = []
 
 
 class DocumentListResponse(BaseModel):
@@ -132,6 +134,7 @@ class DocumentListResponse(BaseModel):
     created_by: Union[str, UUID]
     user_id: Union[str, UUID]
     version: int
+    tags: List[TagInstanceWithDefinition] = []
 
 
 class GenerateDescriptionRequest(BaseModel):

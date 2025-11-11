@@ -7,11 +7,16 @@ Documents metadata stored in PostgreSQL, content stored in MongoDB.
 from typing import List, Optional
 from fastapi import APIRouter, HTTPException, Depends, Request, Query
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import select, and_, or_
+import json
 
 from app.core.auth import get_current_user_with_permissions, set_permission_used
 from app.core.permissions import check_permission
 from app.core.database import get_db
 from app.services.document_service import DocumentService
+from app.services.tag_service import TagService
+from app.models.tag import ResourceType, TagInstance, TagDefinition
+from app.models.document import Document
 from app.schemas.document import (
     FolderCreate,
     FolderUpdate,
@@ -21,8 +26,51 @@ from app.schemas.document import (
     DocumentResponse,
     DocumentListResponse,
 )
+from app.schemas.tag import TagInstanceWithDefinition
 
 router = APIRouter(prefix="/documents", tags=["documents"])
+
+
+async def _build_document_response_with_tags(
+    db: AsyncSession,
+    doc,
+    content: str
+) -> DocumentResponse:
+    """Helper to build DocumentResponse with tags included."""
+    tag_service = TagService(db)
+    tags = await tag_service.get_resource_tags(
+        resource_type=ResourceType.DOCUMENT,
+        resource_id=str(doc.id)
+    )
+
+    # Build tag instances with definitions
+    tag_instances = []
+    for tag in tags:
+        tag_instances.append(TagInstanceWithDefinition(
+            id=tag.id,
+            key=tag.key,
+            value=tag.value,
+            definition=tag.tag_definition,  # SQLAlchemy relationship
+            created_at=tag.created_at
+        ))
+
+    return DocumentResponse(
+        id=doc.id,
+        name=doc.name,
+        description=doc.description,
+        content=content,
+        filetype=doc.filetype,
+        source=doc.source,
+        folder_id=doc.folder_id,
+        content_id=doc.content_id,
+        auto_description_webhook_id=doc.auto_description_webhook_id,
+        created_at=doc.created_at,
+        updated_at=doc.updated_at,
+        created_by=doc.created_by,
+        user_id=doc.user_id,
+        version=doc.version,
+        tags=tag_instances
+    )
 
 
 # Folder Endpoints
@@ -219,23 +267,8 @@ async def create_document(
             raise HTTPException(status_code=500, detail="Failed to retrieve created document")
 
         doc, content = doc_with_content
-        # Build response with content
-        return DocumentResponse(
-            id=doc.id,
-            name=doc.name,
-            description=doc.description,
-            content=content,
-            filetype=doc.filetype,
-            source=doc.source,
-            folder_id=doc.folder_id,
-            content_id=doc.content_id,
-            auto_description_webhook_id=doc.auto_description_webhook_id,
-            created_at=doc.created_at,
-            updated_at=doc.updated_at,
-            created_by=doc.created_by,
-            user_id=doc.user_id,
-            version=doc.version
-        )
+        # Build response with content and tags
+        return await _build_document_response_with_tags(db, doc, content)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
 
@@ -289,6 +322,8 @@ async def list_documents(
     folder_id: Optional[str] = Query(None),
     user_id: Optional[str] = Query(None),
     filetype: Optional[str] = Query(None),
+    tags: Optional[str] = Query(None, description="Tag filters as JSON array of {key, value} objects"),
+    tag_match: Optional[str] = Query("AND", description="Match mode: AND or OR"),
 ):
     """List documents with optional filters (without content for performance)."""
     current_user_id, permissions = current_user_data
@@ -308,7 +343,89 @@ async def list_documents(
             )
 
     documents = await DocumentService.list_documents(db, folder_id, user_id, filetype)
-    return [DocumentListResponse.model_validate(d) for d in documents]
+
+    # Filter by tags if provided
+    if tags:
+        try:
+            tag_filters = json.loads(tags)  # [{"key": "year", "value": "2025"}, ...]
+        except json.JSONDecodeError:
+            raise HTTPException(status_code=400, detail="Invalid tags JSON format")
+
+        # Build tag filter query
+        if tag_match.upper() == "AND":
+            # AND: document must have ALL specified tags
+            filtered_doc_ids = set(str(doc.id) for doc in documents)
+
+            for tag_filter in tag_filters:
+                tag_key = tag_filter.get("key")
+                tag_value = tag_filter.get("value")
+
+                if tag_key:
+                    # Get documents that have this tag
+                    query = select(TagInstance.resource_id).where(
+                        TagInstance.resource_type == ResourceType.DOCUMENT,
+                        TagInstance.key == tag_key
+                    )
+                    if tag_value is not None:
+                        query = query.where(TagInstance.value == tag_value)
+
+                    result = await db.execute(query)
+                    doc_ids_with_tag = set(str(row[0]) for row in result.all())
+
+                    # Intersect with filtered set
+                    filtered_doc_ids &= doc_ids_with_tag
+
+            # Keep only documents that matched ALL tags
+            documents = [doc for doc in documents if str(doc.id) in filtered_doc_ids]
+
+        else:  # OR
+            # OR: document must have ANY of the specified tags
+            or_conditions = []
+            for tag_filter in tag_filters:
+                tag_key = tag_filter.get("key")
+                tag_value = tag_filter.get("value")
+
+                if tag_key:
+                    condition = and_(
+                        TagInstance.resource_type == ResourceType.DOCUMENT,
+                        TagInstance.key == tag_key
+                    )
+                    if tag_value is not None:
+                        condition = and_(condition, TagInstance.value == tag_value)
+                    or_conditions.append(condition)
+
+            if or_conditions:
+                query = select(TagInstance.resource_id).where(or_(*or_conditions)).distinct()
+                result = await db.execute(query)
+                doc_ids_with_any_tag = set(str(row[0]) for row in result.all())
+
+                # Keep only documents that matched ANY tag
+                documents = [doc for doc in documents if str(doc.id) in doc_ids_with_any_tag]
+
+    # Fetch tags for all documents
+    tag_service = TagService(db)
+    result = []
+    for doc in documents:
+        tags = await tag_service.get_resource_tags(
+            resource_type=ResourceType.DOCUMENT,
+            resource_id=str(doc.id)
+        )
+
+        tag_instances = []
+        for tag in tags:
+            tag_instances.append(TagInstanceWithDefinition(
+                id=tag.id,
+                key=tag.key,
+                value=tag.value,
+                definition=tag.tag_definition,
+                created_at=tag.created_at
+            ))
+
+        doc_response = DocumentListResponse.model_validate(doc)
+        doc_response.tags = tag_instances
+        result.append(doc_response)
+
+    return result
 
 
 @router.patch("/{document_id}", response_model=DocumentResponse)
@@ -355,23 +472,8 @@ async def update_document(
             raise HTTPException(status_code=500, detail="Failed to retrieve updated document")
 
         doc, content = doc_with_content
-        # Build response with content
-        return DocumentResponse(
-            id=doc.id,
-            name=doc.name,
-            description=doc.description,
-            content=content,
-            filetype=doc.filetype,
-            source=doc.source,
-            folder_id=doc.folder_id,
-            content_id=doc.content_id,
-            auto_description_webhook_id=doc.auto_description_webhook_id,
-            created_at=doc.created_at,
-            updated_at=doc.updated_at,
-            created_by=doc.created_by,
-            user_id=doc.user_id,
-            version=doc.version
-        )
+        # Build response with content and tags
+        return await _build_document_response_with_tags(db, doc, content)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
 

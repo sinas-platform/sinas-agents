@@ -1,8 +1,9 @@
 """API endpoints for tag management."""
 from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select
+from sqlalchemy import select, func
 from typing import List, Optional
+from pydantic import BaseModel
 
 from app.core.database import get_db
 from app.core.auth import get_current_user_with_permissions, set_permission_used
@@ -28,6 +29,19 @@ from app.schemas.tag import (
 from app.services.tag_service import TagService
 
 router = APIRouter()
+
+
+# Response schemas for tag values endpoint
+class TagValueCount(BaseModel):
+    """A tag value with its count."""
+    value: Optional[str]
+    count: int
+
+
+class TagValuesResponse(BaseModel):
+    """Response for tag values with counts."""
+    tag_name: str
+    values: List[TagValueCount]
 
 
 # Tag Definitions
@@ -593,3 +607,54 @@ async def run_tagger_bulk(
         )
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
+
+
+@router.get("/values/{tag_name}", response_model=TagValuesResponse)
+async def get_tag_values(
+    request: Request,
+    tag_name: str,
+    resource_type: Optional[str] = None,  # "document" or "email"
+    current_user_data: tuple = Depends(get_current_user_with_permissions),
+    db: AsyncSession = Depends(get_db)
+):
+    """Get all distinct values for a tag with counts."""
+    user_id, permissions = current_user_data
+
+    # Check permission to read tags
+    if not check_permission(permissions, "sinas.tags.document.read:group"):
+        set_permission_used(request, "sinas.tags.document.read:group", has_perm=False)
+        raise HTTPException(status_code=403, detail="Not authorized")
+
+    set_permission_used(request, "sinas.tags.document.read:group", has_perm=True)
+
+    # Get tag definition
+    result = await db.execute(
+        select(TagDefinition).where(TagDefinition.name == tag_name)
+    )
+    tag_def = result.scalar_one_or_none()
+    if not tag_def:
+        raise HTTPException(status_code=404, detail="Tag definition not found")
+
+    # Build query for tag values with counts
+    query = select(
+        TagInstance.value,
+        func.count(TagInstance.id).label("count")
+    ).where(
+        TagInstance.tag_definition_id == tag_def.id
+    )
+
+    # Filter by resource type if specified
+    if resource_type:
+        query = query.where(TagInstance.resource_type == resource_type)
+
+    query = query.group_by(TagInstance.value).order_by(func.count(TagInstance.id).desc())
+
+    result = await db.execute(query)
+    rows = result.all()
+
+    values = [TagValueCount(value=row[0], count=row[1]) for row in rows]
+
+    return TagValuesResponse(
+        tag_name=tag_name,
+        values=values
+    )
