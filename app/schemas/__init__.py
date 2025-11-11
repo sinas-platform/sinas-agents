@@ -11,3 +11,4 @@ from .group import *
 from .user import *
 from .context_store import *
 from .email import *
+from .tag import *

@@ -8,7 +8,13 @@ import uuid
 class AssistantCreate(BaseModel):
     name: str
     description: Optional[str] = None
+    provider: Optional[str] = None
+    model: Optional[str] = None
+    temperature: Optional[float] = 0.7
     system_prompt: Optional[str] = None
+    input_schema: Optional[Dict[str, Any]] = None
+    output_schema: Optional[Dict[str, Any]] = None
+    initial_messages: Optional[List[Dict[str, str]]] = None
     group_id: Optional[uuid.UUID] = None
     enabled_webhooks: Optional[List[str]] = None
     enabled_mcp_tools: Optional[List[str]] = None
@@ -22,7 +28,13 @@ class AssistantCreate(BaseModel):
 class AssistantUpdate(BaseModel):
     name: Optional[str] = None
     description: Optional[str] = None
+    provider: Optional[str] = None
+    model: Optional[str] = None
+    temperature: Optional[float] = None
     system_prompt: Optional[str] = None
+    input_schema: Optional[Dict[str, Any]] = None
+    output_schema: Optional[Dict[str, Any]] = None
+    initial_messages: Optional[List[Dict[str, str]]] = None
     enabled_webhooks: Optional[List[str]] = None
     enabled_mcp_tools: Optional[List[str]] = None
     webhook_parameters: Optional[Dict[str, Any]] = None
@@ -39,7 +51,13 @@ class AssistantResponse(BaseModel):
     group_id: Optional[uuid.UUID]
     name: str
     description: Optional[str]
+    provider: Optional[str]
+    model: Optional[str]
+    temperature: float
     system_prompt: Optional[str]
+    input_schema: Dict[str, Any]
+    output_schema: Dict[str, Any]
+    initial_messages: Optional[List[Dict[str, str]]]
     enabled_webhooks: List[str]
     enabled_mcp_tools: List[str]
     webhook_parameters: Dict[str, Any]

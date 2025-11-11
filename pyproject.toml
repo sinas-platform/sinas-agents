@@ -38,6 +38,7 @@ dependencies = [
     "clickhouse-connect>=0.7.0",
     "Jinja2>=3.1.0",
     "aiosmtpd>=1.4.0",
+    "motor>=3.3.0",
 ]
 
 [project.optional-dependencies]

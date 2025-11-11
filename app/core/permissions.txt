@@ -257,3 +257,90 @@ sinas.email.inboxes.rules.update:own
 sinas.email.inboxes.rules.update:all
 sinas.email.inboxes.rules.delete:own
 sinas.email.inboxes.rules.delete:all
+
+# Documents - Folder Management
+sinas.documents.folders.create:own
+sinas.documents.folders.create:group
+sinas.documents.folders.create:all
+sinas.documents.folders.read:own
+sinas.documents.folders.read:group
+sinas.documents.folders.read:all
+sinas.documents.folders.update:own
+sinas.documents.folders.update:group
+sinas.documents.folders.update:all
+sinas.documents.folders.delete:own
+sinas.documents.folders.delete:group
+sinas.documents.folders.delete:all
+
+# Documents - Document Management
+# Note: Document permissions are inherited from their parent folder
+sinas.documents.create:own
+sinas.documents.create:group
+sinas.documents.create:all
+sinas.documents.read:own
+sinas.documents.read:group
+sinas.documents.read:all
+sinas.documents.update:own
+sinas.documents.update:group
+sinas.documents.update:all
+sinas.documents.delete:own
+sinas.documents.delete:group
+sinas.documents.delete:all
+
+# Documents - Description Generation
+sinas.documents.generate_description:own
+sinas.documents.generate_description:group
+sinas.documents.generate_description:all
+
+# Tags - Tag Definition Management
+sinas.tags.definitions.create:own
+sinas.tags.definitions.create:group
+sinas.tags.definitions.create:all
+sinas.tags.definitions.read:own
+sinas.tags.definitions.read:group
+sinas.tags.definitions.read:all
+sinas.tags.definitions.update:own
+sinas.tags.definitions.update:group
+sinas.tags.definitions.update:all
+sinas.tags.definitions.delete:own
+sinas.tags.definitions.delete:group
+sinas.tags.definitions.delete:all
+
+# Tags - Tagger Rule Management
+sinas.tags.tagger_rules.create:own
+sinas.tags.tagger_rules.create:group
+sinas.tags.tagger_rules.create:all
+sinas.tags.tagger_rules.read:own
+sinas.tags.tagger_rules.read:group
+sinas.tags.tagger_rules.read:all
+sinas.tags.tagger_rules.update:own
+sinas.tags.tagger_rules.update:group
+sinas.tags.tagger_rules.update:all
+sinas.tags.tagger_rules.delete:own
+sinas.tags.tagger_rules.delete:group
+sinas.tags.tagger_rules.delete:all
+sinas.tags.tagger_rules.execute:own
+sinas.tags.tagger_rules.execute:group
+sinas.tags.tagger_rules.execute:all
+
+# Tags - Resource Tagging (document, email)
+# Format: sinas.tags.{resource_type}.{action}:scope
+sinas.tags.document.create:own
+sinas.tags.document.create:group
+sinas.tags.document.create:all
+sinas.tags.document.read:own
+sinas.tags.document.read:group
+sinas.tags.document.read:all
+sinas.tags.document.delete:own
+sinas.tags.document.delete:group
+sinas.tags.document.delete:all
+
+sinas.tags.email.create:own
+sinas.tags.email.create:group
+sinas.tags.email.create:all
+sinas.tags.email.read:own
+sinas.tags.email.read:group
+sinas.tags.email.read:all
+sinas.tags.email.delete:own
+sinas.tags.email.delete:group
+sinas.tags.email.delete:all

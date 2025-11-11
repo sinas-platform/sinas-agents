@@ -14,6 +14,13 @@ class Settings(BaseSettings):
     # Override with REDIS_URL env var if needed
     redis_url: str = os.getenv("REDIS_URL", "redis://localhost:6379/0")
 
+    # MongoDB
+    # Defaults to localhost for local development
+    # In docker-compose, MONGODB_URL env var will override this
+    mongodb_url: str = os.getenv(
+        "MONGODB_URL", "mongodb://mongodb:password@localhost:27017/sinas?authSource=admin"
+    )
+
     # ClickHouse
     clickhouse_host: str = os.getenv("CLICKHOUSE_HOST", "localhost")
     clickhouse_port: int = int(os.getenv("CLICKHOUSE_PORT", "8123"))  # HTTP port

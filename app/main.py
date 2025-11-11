@@ -6,11 +6,13 @@ from app.api.v1 import router as api_v1_router
 from app.core.config import settings
 from app.core.auth import initialize_default_groups, initialize_superadmin
 from app.core.database import AsyncSessionLocal
+from app.core.mongodb import mongodb
 from app.services.scheduler import scheduler
 from app.services.redis_logger import redis_logger
 from app.services.clickhouse_logger import clickhouse_logger
 from app.services.mcp import mcp_client
 from app.services.smtp_server import smtp_server
+from app.services.default_assistants import initialize_default_assistants
 from app.middleware.request_logger import RequestLoggerMiddleware
 
 
@@ -18,6 +20,7 @@ from app.middleware.request_logger import RequestLoggerMiddleware
 async def lifespan(app: FastAPI):
     # Startup
     await redis_logger.connect()
+    await mongodb.connect()
     await scheduler.start()
 
     # Initialize default groups
@@ -32,6 +35,10 @@ async def lifespan(app: FastAPI):
     async with AsyncSessionLocal() as db:
         await mcp_client.initialize(db)
 
+    # Initialize default assistants
+    async with AsyncSessionLocal() as db:
+        await initialize_default_assistants(db)
+
     # Start SMTP server for receiving emails
     smtp_server.start()
 
@@ -39,6 +46,7 @@ async def lifespan(app: FastAPI):
     # Shutdown
     await scheduler.stop()
     await redis_logger.disconnect()
+    await mongodb.disconnect()
     clickhouse_logger.close()
     smtp_server.stop()
 

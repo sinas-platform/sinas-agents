@@ -26,6 +26,8 @@ from .endpoints import (
     email_templates,
     emails,
     email_inboxes,
+    documents,
+    tags,
 )
 
 router = APIRouter()
@@ -67,3 +69,9 @@ router.include_router(ontology_records.router)
 router.include_router(email_templates.router)
 router.include_router(emails.router)
 router.include_router(email_inboxes.router)
+
+# Document routes
+router.include_router(documents.router)
+
+# Tag routes
+router.include_router(tags.router, prefix="/tags", tags=["tags"])

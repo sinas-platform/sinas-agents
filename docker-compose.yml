@@ -41,11 +41,29 @@ services:
     # Add platform specification for better compatibility
     platform: linux/amd64
     healthcheck:
-      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:8123/ping"]
+      test: ["CMD-SHELL", "wget --no-verbose --tries=1 --spider http://127.0.0.1:8123/ping || exit 1"]
       interval: 10s
       timeout: 5s
       retries: 10
       start_period: 30s
+
+  # MongoDB - for document content storage
+  mongodb:
+    image: mongo:7-jammy
+    container_name: sinas-mongodb
+    ports:
+      - "27017:27017"
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: ${MONGO_USERNAME:-mongodb}
+      MONGO_INITDB_ROOT_PASSWORD: ${MONGO_PASSWORD:-mongopassword}
+      MONGO_INITDB_DATABASE: sinas
+    volumes:
+      - mongodb_data:/data/db
+    healthcheck:
+      test: ["CMD", "mongosh", "--eval", "db.adminCommand('ping')"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
 
   # PostgreSQL - only used if DATABASE_URL is not set
   # Requires POSTGRES_PASSWORD to be set in .env
@@ -94,6 +112,10 @@ services:
       CLICKHOUSE_PASSWORD: ${CLICKHOUSE_PASSWORD:-}
       CLICKHOUSE_DATABASE: ${CLICKHOUSE_DATABASE:-sinas}
 
+      # MongoDB configuration
+      # If MONGODB_URL is set, it will be used. Otherwise, use mongodb service
+      MONGODB_URL: ${MONGODB_URL:-mongodb://${MONGO_USERNAME:-mongodb}:${MONGO_PASSWORD:-mongopassword}@mongodb:27017/sinas?authSource=admin}
+
       # Application configuration
       DEBUG: ${DEBUG:-false}
       SECRET_KEY: ${SECRET_KEY:?SECRET_KEY must be set in .env file}
@@ -137,7 +159,8 @@ services:
         condition: service_healthy
       clickhouse:
         condition: service_healthy
-        required: false  # Optional - app will work without ClickHouse logging
+      mongodb:
+        condition: service_healthy
       postgres:
         condition: service_healthy
         required: false  # Only required if using local-db profile
@@ -150,3 +173,4 @@ volumes:
   redis_data:
   postgres_data:
   clickhouse_data:
+  mongodb_data:

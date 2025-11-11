@@ -28,6 +28,8 @@ from .ontology import (
     FilterOperator,
 )
 from .email import EmailTemplate, Email, EmailInbox, EmailInboxRule, EmailStatus
+from .document import Folder, Document, OwnerType, PermissionScope, FileType
+from .tag import TagDefinition, TagInstance, TaggerRule, ValueType, ResourceType, ScopeType
 
 __all__ = [
     "Base",
@@ -70,4 +72,15 @@ __all__ = [
     "EmailInbox",
     "EmailInboxRule",
     "EmailStatus",
+    "Folder",
+    "Document",
+    "OwnerType",
+    "PermissionScope",
+    "FileType",
+    "TagDefinition",
+    "TagInstance",
+    "TaggerRule",
+    "ValueType",
+    "ResourceType",
+    "ScopeType",
 ]

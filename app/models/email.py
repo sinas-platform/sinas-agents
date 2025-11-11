@@ -60,7 +60,7 @@ class Email(Base):
 class EmailInbox(Base):
     __tablename__ = "email_inboxes"
 
-    id = Column(Integer, primary_key=True, index=True)
+    id = Column(GUID(), primary_key=True, index=True, default=uuid_lib.uuid4)
     name = Column(String(255), nullable=False)
     email_address = Column(String(255), unique=True, nullable=False, index=True)
     description = Column(Text, nullable=True)
@@ -81,8 +81,8 @@ class EmailInbox(Base):
 class EmailInboxRule(Base):
     __tablename__ = "email_inbox_rules"
 
-    id = Column(Integer, primary_key=True, index=True)
-    inbox_id = Column(Integer, ForeignKey("email_inboxes.id"), nullable=False)
+    id = Column(GUID(), primary_key=True, index=True, default=uuid_lib.uuid4)
+    inbox_id = Column(GUID(), ForeignKey("email_inboxes.id"), nullable=False)
     name = Column(String(255), nullable=False)
 
     # Rule conditions (all must match for rule to trigger)

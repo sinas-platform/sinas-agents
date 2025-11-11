@@ -6,6 +6,8 @@ from datetime import datetime, timezone
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
+from jinja2 import Template
+import jsonschema
 
 from app.models import Chat, Message, Assistant
 from app.models.execution import Execution, ExecutionStatus
@@ -29,6 +31,72 @@ class MessageService:
         self.context_tools = ContextTools()
         self.ontology_tools = OntologyTools()
 
+    async def create_chat_with_assistant(
+        self,
+        assistant_id: str,
+        user_id: str,
+        input_data: Dict[str, Any],
+        group_id: Optional[str] = None,
+        name: Optional[str] = None
+    ) -> Chat:
+        """
+        Create a chat with an assistant using input validation and template rendering.
+
+        Args:
+            assistant_id: Assistant to use
+            user_id: User ID
+            input_data: Input data to validate and use for template rendering
+            group_id: Optional group ID
+            name: Optional chat name
+
+        Returns:
+            Created chat
+
+        Raises:
+            ValueError: If input validation fails
+        """
+        # Get assistant
+        result = await self.db.execute(
+            select(Assistant).where(Assistant.id == assistant_id)
+        )
+        assistant = result.scalar_one_or_none()
+        if not assistant:
+            raise ValueError("Assistant not found")
+
+        # Validate input against assistant's input_schema
+        if assistant.input_schema:
+            try:
+                jsonschema.validate(instance=input_data, schema=assistant.input_schema)
+            except jsonschema.ValidationError as e:
+                raise ValueError(f"Input validation failed: {e.message}")
+
+        # Create chat
+        chat = Chat(
+            user_id=user_id,
+            group_id=group_id,
+            assistant_id=assistant_id,
+            title=name or f"Chat with {assistant.name}",
+            enabled_webhooks=assistant.enabled_webhooks,
+            enabled_mcp_tools=assistant.enabled_mcp_tools
+        )
+        self.db.add(chat)
+        await self.db.commit()
+        await self.db.refresh(chat)
+
+        # Pre-populate with initial_messages if present
+        if assistant.initial_messages:
+            for msg_data in assistant.initial_messages:
+                message = Message(
+                    chat_id=chat.id,
+                    role=msg_data["role"],
+                    content=msg_data["content"]
+                )
+                self.db.add(message)
+            await self.db.commit()
+
+        return chat
+
+
     async def send_message(
         self,
         chat_id: str,
@@ -46,6 +114,7 @@ class MessageService:
         inject_context: bool = True,
         context_namespaces: Optional[List[str]] = None,
         context_limit: int = 5,
+        template_variables: Optional[Dict[str, Any]] = None,
     ) -> Message:
         """
         Send a message and get LLM response (non-streaming).
@@ -75,6 +144,20 @@ class MessageService:
         if not chat:
             raise ValueError("Chat not found")
 
+        # Get assistant settings if chat has an assistant
+        assistant = None
+        if chat.assistant_id:
+            result = await self.db.execute(
+                select(Assistant).where(Assistant.id == chat.assistant_id)
+            )
+            assistant = result.scalar_one_or_none()
+
+        # Determine final provider/model/temperature
+        # Priority: message params > assistant settings > system defaults
+        final_provider = provider or (assistant.provider if assistant else None) or settings.default_llm_provider
+        final_model = model or (assistant.model if assistant else None) or settings.default_model
+        final_temperature = temperature if temperature != 0.7 else (assistant.temperature if assistant else 0.7)
+
         # Save user message
         user_message = Message(
             chat_id=chat_id,
@@ -93,7 +176,8 @@ class MessageService:
             inject_context=inject_context,
             user_id=user_id,
             context_namespaces=context_namespaces,
-            context_limit=context_limit
+            context_limit=context_limit,
+            template_variables=template_variables
         )
 
         # Get available tools
@@ -107,15 +191,15 @@ class MessageService:
         )
 
         # Create LLM provider
-        llm_provider = create_provider(provider, model)
+        llm_provider = create_provider(final_provider, final_model)
 
         # Get response from LLM
         start_time = datetime.now(timezone.utc)
         response = await llm_provider.complete(
             messages=messages,
-            model=model or settings.default_model,
+            model=final_model,
             tools=tools if tools else None,
-            temperature=temperature,
+            temperature=final_temperature,
             max_tokens=max_tokens
         )
         end_time = datetime.now(timezone.utc)
@@ -125,8 +209,8 @@ class MessageService:
             user_id=user_id,
             chat_id=str(chat_id),
             message_id=str(user_message.id),
-            provider=provider or "openai",
-            model=model or settings.default_model,
+            provider=final_provider,
+            model=final_model,
             messages=messages,
             response=response,
             latency_ms=int((end_time - start_time).total_seconds() * 1000)
@@ -178,6 +262,7 @@ class MessageService:
         inject_context: bool = True,
         context_namespaces: Optional[List[str]] = None,
         context_limit: int = 5,
+        template_variables: Optional[Dict[str, Any]] = None,
     ) -> AsyncIterator[Dict[str, Any]]:
         """
         Send a message and stream LLM response.
@@ -192,6 +277,20 @@ class MessageService:
         chat = result.scalar_one_or_none()
         if not chat:
             raise ValueError("Chat not found")
+
+        # Get assistant settings if chat has an assistant
+        assistant = None
+        if chat.assistant_id:
+            result = await self.db.execute(
+                select(Assistant).where(Assistant.id == chat.assistant_id)
+            )
+            assistant = result.scalar_one_or_none()
+
+        # Determine final provider/model/temperature
+        # Priority: message params > assistant settings > system defaults
+        final_provider = provider or (assistant.provider if assistant else None) or settings.default_llm_provider
+        final_model = model or (assistant.model if assistant else None) or settings.default_model
+        final_temperature = temperature if temperature != 0.7 else (assistant.temperature if assistant else 0.7)
 
         # Save user message
         user_message = Message(
@@ -211,7 +310,8 @@ class MessageService:
             inject_context=inject_context,
             user_id=user_id,
             context_namespaces=context_namespaces,
-            context_limit=context_limit
+            context_limit=context_limit,
+            template_variables=template_variables
         )
 
         # Get available tools
@@ -225,7 +325,7 @@ class MessageService:
         )
 
         # Create LLM provider
-        llm_provider = create_provider(provider, model)
+        llm_provider = create_provider(final_provider, final_model)
 
         # Stream response
         full_content = ""
@@ -233,9 +333,9 @@ class MessageService:
 
         async for chunk in llm_provider.stream(
             messages=messages,
-            model=model or settings.default_model,
+            model=final_model,
             tools=tools if tools else None,
-            temperature=temperature,
+            temperature=final_temperature,
             max_tokens=max_tokens
         ):
             if chunk.get("content"):
@@ -280,9 +380,23 @@ class MessageService:
         inject_context: bool = False,
         user_id: Optional[str] = None,
         context_namespaces: Optional[List[str]] = None,
-        context_limit: int = 5
+        context_limit: int = 5,
+        template_variables: Optional[Dict[str, Any]] = None
     ) -> List[Dict[str, Any]]:
-        """Build conversation history for LLM with optional context injection."""
+        """
+        Build conversation history for LLM with optional context injection.
+
+        Args:
+            chat: Chat object
+            inject_context: Whether to inject stored context
+            user_id: User ID for context retrieval
+            context_namespaces: Namespaces to filter context
+            context_limit: Max context items to inject
+            template_variables: Variables for Jinja2 template rendering in system_prompt
+
+        Returns:
+            List of message dicts for LLM
+        """
         messages = []
 
         # Add system prompt from assistant if exists
@@ -293,7 +407,16 @@ class MessageService:
             )
             assistant = result.scalar_one_or_none()
             if assistant and assistant.system_prompt:
-                system_content = assistant.system_prompt
+                # Render system prompt with Jinja2 if template_variables provided
+                if template_variables:
+                    try:
+                        template = Template(assistant.system_prompt)
+                        system_content = template.render(**template_variables)
+                    except Exception as e:
+                        logger.error(f"Failed to render system prompt template: {e}")
+                        system_content = assistant.system_prompt
+                else:
+                    system_content = assistant.system_prompt
 
         # Inject relevant context if enabled
         if inject_context and user_id:
