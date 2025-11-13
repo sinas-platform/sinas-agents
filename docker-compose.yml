@@ -163,7 +163,6 @@ services:
         condition: service_healthy
       postgres:
         condition: service_healthy
-        required: false  # Only required if using local-db profile
     volumes:
       # Mount code for development (comment out for production)
       - .:/app
