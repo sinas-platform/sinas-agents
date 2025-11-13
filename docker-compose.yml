@@ -99,8 +99,9 @@ services:
       - "2525:2525"  # SMTP server for receiving emails
     environment:
       # Database configuration
-      # If DATABASE_URL is set, it will be used. Otherwise, use postgres service
-      DATABASE_URL: ${DATABASE_URL:-postgresql://postgres:${POSTGRES_PASSWORD}@postgres:5432/sinas}
+      # If using external database, set DATABASE_URL in .env
+      # If using local postgres (--profile local-db), set POSTGRES_PASSWORD in .env
+      DATABASE_URL: ${DATABASE_URL:?DATABASE_URL must be set in .env file}
 
       # Redis configuration (hardcoded to docker service)
       REDIS_URL: redis://redis:6379/0
