@@ -34,14 +34,13 @@ class ContextTools:
         if db and user_id:
             available_keys_info = await ContextTools._get_available_keys_description(db, user_id)
 
-        # Add namespace restrictions info
-        namespace_info = ""
-        if assistant_context_namespaces is not None:
-            if len(assistant_context_namespaces) == 0:
-                namespace_info = "\n\nNO CONTEXT ACCESS: This assistant cannot read or write context."
-            else:
-                namespaces_list = ", ".join([f"'{ns}'" for ns in assistant_context_namespaces])
-                namespace_info = f"\n\nAllowed namespaces: {namespaces_list}. You can only save/update context in these namespaces."
+        # Opt-in: None or [] means no access - return no tools
+        if assistant_context_namespaces is None or len(assistant_context_namespaces) == 0:
+            return []
+
+        # Build namespace info for allowed namespaces
+        namespaces_list = ", ".join([f"'{ns}'" for ns in assistant_context_namespaces])
+        namespace_info = f"\n\nAllowed namespaces: {namespaces_list}. You can only save/update context in these namespaces."
 
         save_description = (
             "Save information to context store for future recall. Use this to remember "
@@ -72,11 +71,9 @@ class ContextTools:
                             "namespace": {
                                 "type": "string",
                                 "description": (
-                                    "Category/namespace for organization. Common values: "
-                                    "'preferences' (user settings), 'facts' (learned information), "
-                                    "'decisions' (important choices), 'project' (project-specific data)"
+                                    "Category/namespace for organization. Use one of the allowed namespaces."
                                 ),
-                                "enum": ["preferences", "facts", "decisions", "project", "reminders", "goals"]
+                                "enum": assistant_context_namespaces  # Only allow assistant's permitted namespaces
                             },
                             "key": {
                                 "type": "string",

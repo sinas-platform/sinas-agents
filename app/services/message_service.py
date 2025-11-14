@@ -222,6 +222,23 @@ class MessageService:
             if provider_config:
                 final_model = provider_config.default_model
 
+        # Build response_format from assistant's output_schema if present
+        response_format = None
+        if assistant and assistant.output_schema and assistant.output_schema.get("properties"):
+            # Ensure schema has additionalProperties: false for strict mode
+            schema = dict(assistant.output_schema)
+            if "additionalProperties" not in schema:
+                schema["additionalProperties"] = False
+
+            response_format = {
+                "type": "json_schema",
+                "json_schema": {
+                    "name": f"{assistant.name.lower().replace(' ', '_')}_response",
+                    "strict": True,
+                    "schema": schema
+                }
+            }
+
         return {
             "chat": chat,
             "user_message": user_message,
@@ -230,7 +247,8 @@ class MessageService:
             "llm_provider": llm_provider,
             "provider_name": provider_name,
             "final_model": final_model,
-            "final_temperature": final_temperature
+            "final_temperature": final_temperature,
+            "response_format": response_format
         }
 
     async def send_message(
@@ -273,12 +291,19 @@ class MessageService:
 
         # Get response from LLM (non-streaming)
         start_time = datetime.now(timezone.utc)
+
+        # Build kwargs for LLM provider
+        llm_kwargs = {}
+        if prep["response_format"]:
+            llm_kwargs["response_format"] = prep["response_format"]
+
         response = await prep["llm_provider"].complete(
             messages=prep["messages"],
             model=prep["final_model"],
             tools=prep["tools"] if prep["tools"] else None,
             temperature=prep["final_temperature"],
-            max_tokens=max_tokens
+            max_tokens=max_tokens,
+            **llm_kwargs
         )
         end_time = datetime.now(timezone.utc)
 
@@ -524,6 +549,11 @@ class MessageService:
                         system_content = assistant.system_prompt
                 else:
                     system_content = assistant.system_prompt
+
+            # Add output schema instruction if assistant has one
+            if assistant and assistant.output_schema and assistant.output_schema.get("properties"):
+                schema_instruction = f"\n\nIMPORTANT: You must respond with valid JSON matching this exact schema:\n```json\n{json.dumps(assistant.output_schema, indent=2)}\n```\nDo not include any text outside the JSON object."
+                system_content += schema_instruction
 
         # Inject relevant context if enabled
         # No assistant = no context injection
@@ -809,16 +839,19 @@ class MessageService:
             return {"error": f"Assistant not found: {assistant_id_str}"}
 
         # Prepare input data for the assistant
+        # Filter out internal _assistant_id parameter
+        user_arguments = {k: v for k, v in arguments.items() if not k.startswith("_")}
+
         # If arguments contain just "prompt", send as message content
         # Otherwise, use as input_data for validation
-        if "prompt" in arguments and len(arguments) == 1:
+        if "prompt" in user_arguments and len(user_arguments) == 1:
             # Simple prompt mode
             input_data = {}
-            content = arguments["prompt"]
+            content = user_arguments["prompt"]
         else:
             # Structured input mode
-            input_data = arguments
-            content = json.dumps(arguments)
+            input_data = user_arguments
+            content = json.dumps(user_arguments)
 
         # Create a new chat for this assistant call
         try:
@@ -831,6 +864,7 @@ class MessageService:
             )
 
             # Send message to the assistant
+            # Output schema enforcement happens automatically in send_message
             response_message = await self.send_message(
                 chat_id=str(sub_chat.id),
                 user_id=user_id,
