@@ -45,7 +45,7 @@ class Email(Base):
     attachments = Column(JSON, nullable=True)
     status = Column(SQLEnum(EmailStatus), default=EmailStatus.PENDING, index=True)
     direction = Column(String(10), nullable=False, index=True)  # inbound/outbound
-    inbox_id = Column(Integer, ForeignKey("email_inboxes.id"), nullable=True, index=True)
+    inbox_id = Column(GUID(), ForeignKey("email_inboxes.id"), nullable=True, index=True)
     template_id = Column(Integer, ForeignKey("email_templates.id"), nullable=True)
     template_variables = Column(JSON, nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())

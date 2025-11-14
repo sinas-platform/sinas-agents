@@ -1,8 +1,8 @@
 """initial migration
 
-Revision ID: 19886c9ac898
-Revises:
-Create Date: 2025-11-14 17:23:34.332103
+Revision ID: 8d249569443c
+Revises: 
+Create Date: 2025-11-14 17:28:49.650897
 
 """
 from alembic import op
@@ -11,7 +11,7 @@ from app.models.base import GUID
 
 
 # revision identifiers, used by Alembic.
-revision = '19886c9ac898'
+revision = '8d249569443c'
 down_revision = None
 branch_labels = None
 depends_on = None
@@ -520,7 +520,7 @@ def upgrade() -> None:
     sa.Column('attachments', sa.JSON(), nullable=True),
     sa.Column('status', sa.Enum('PENDING', 'SENT', 'FAILED', 'RECEIVED', name='emailstatus'), nullable=True),
     sa.Column('direction', sa.String(length=10), nullable=False),
-    sa.Column('inbox_id', sa.Integer(), nullable=True),
+    sa.Column('inbox_id', GUID(), nullable=True),
     sa.Column('template_id', sa.Integer(), nullable=True),
     sa.Column('template_variables', sa.JSON(), nullable=True),
     sa.Column('created_at', sa.DateTime(timezone=True), server_default=sa.text('now()'), nullable=True),
