@@ -5,7 +5,7 @@
 SINAS combines multiple powerful systems into a unified platform:
 - 🤖 **AI Chat & Assistants** - Multi-provider LLM integration with tool calling (OpenAI, Ollama, Anthropic)
 - 📊 **Ontology System** - Three-mode semantic data layer (query, sync, self-managed)
-- ⚡ **Function Execution** - Python runtime with automatic execution tracking and call trees
+- ⚡ **Function Execution** - Sandboxed Python runtime with automatic execution tracking and call trees
 - 📄 **Document Management** - Hierarchical storage with AI-powered auto-tagging
 - 🏷️ **Tagging System** - Flexible metadata with LLM-based auto-tagging
 - 📧 **Email Integration** - Send/receive emails with template rendering and webhook triggers
@@ -45,7 +45,7 @@ ENCRYPTION_KEY=<output-from-above-command>
 
 # Database (REQUIRED - choose one)
 # Option 1: Use docker-compose postgres (easiest)
-POSTGRES_PASSWORD=your-secure-postgres-password
+DATABASE_PASSWORD=your-secure-postgres-password
 
 # Option 2: External database
 # DATABASE_URL=postgresql://user:password@host:5432/sinas
@@ -60,20 +60,11 @@ SMTP_DOMAIN=yourdomain.com
 # Admin user (optional but recommended)
 SUPERADMIN_EMAIL=admin@yourdomain.com
 
-# LLM Provider (at least one recommended)
-OPENAI_API_KEY=sk-...
-# or
-LOCAL_LLM_ENDPOINT=http://localhost:11434  # Ollama
+# Application Port (optional, default: 8000)
+APP_PORT=8000
 ```
 
 4. **Start the application:**
-
-**With local database (development):**
-```bash
-docker-compose --profile local-db up
-```
-
-**With external database (production):**
 ```bash
 docker-compose up
 ```
@@ -94,6 +85,38 @@ curl -X POST http://localhost:8000/api/v1/auth/login \
 curl -X POST http://localhost:8000/api/v1/auth/verify-otp \
   -H "Content-Type: application/json" \
   -d '{"session_id": "<session_id>", "otp_code": "123456"}'
+```
+
+7. **Configure LLM providers (via API):**
+
+LLM providers are now managed through the database instead of environment variables:
+
+```bash
+# Add OpenAI provider
+curl -X POST http://localhost:8000/api/v1/llm-providers \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name": "openai-main",
+    "provider_type": "openai",
+    "api_key": "sk-...",
+    "is_default": true
+  }'
+
+# Add Ollama provider
+curl -X POST http://localhost:8000/api/v1/llm-providers \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name": "ollama-local",
+    "provider_type": "ollama",
+    "api_endpoint": "http://localhost:11434",
+    "is_default": false
+  }'
+
+# List all providers
+curl http://localhost:8000/api/v1/llm-providers \
+  -H "Authorization: Bearer $TOKEN"
 ```
 
 ### Local Development (Without Docker)

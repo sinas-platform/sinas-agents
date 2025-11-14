@@ -3,7 +3,7 @@ from datetime import datetime
 from typing import Optional, List
 from uuid import UUID
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 from app.models.ontology import (
     DataType,
@@ -101,6 +101,7 @@ class PropertyBase(BaseModel):
     data_type: DataType
     is_identifier: bool = Field(False, description="Acts as primary key")
     is_required: bool = Field(False, description="Cannot be null")
+    is_system: bool = Field(False, description="Auto-generated system property (read-only)")
     default_value: Optional[str] = Field(None, description="Default value as string")
 
 
@@ -186,6 +187,14 @@ class ConceptQueryCreate(ConceptQueryBase):
     concept_id: UUID
     data_source_id: Optional[UUID] = Field(None, description="Null for self-managed concepts")
 
+    @field_validator('data_source_id', mode='before')
+    @classmethod
+    def empty_str_to_none(cls, v):
+        """Convert empty string to None for optional UUID field."""
+        if v == '':
+            return None
+        return v
+
 
 class ConceptQueryUpdate(BaseModel):
     """Schema for updating a ConceptQuery."""
@@ -193,6 +202,14 @@ class ConceptQueryUpdate(BaseModel):
     data_source_id: Optional[UUID] = None
     sync_enabled: Optional[bool] = None
     sync_schedule: Optional[str] = None
+
+    @field_validator('data_source_id', mode='before')
+    @classmethod
+    def empty_str_to_none(cls, v):
+        """Convert empty string to None for optional UUID field."""
+        if v == '':
+            return None
+        return v
 
 
 class ConceptQueryResponse(ConceptQueryBase):

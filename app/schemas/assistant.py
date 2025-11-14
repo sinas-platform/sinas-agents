@@ -8,8 +8,8 @@ import uuid
 class AssistantCreate(BaseModel):
     name: str
     description: Optional[str] = None
-    provider: Optional[str] = None
-    model: Optional[str] = None
+    llm_provider_id: Optional[uuid.UUID] = None  # NULL = use default provider
+    model: Optional[str] = None  # NULL = use provider's default model
     temperature: Optional[float] = 0.7
     system_prompt: Optional[str] = None
     input_schema: Optional[Dict[str, Any]] = None
@@ -29,7 +29,7 @@ class AssistantCreate(BaseModel):
 class AssistantUpdate(BaseModel):
     name: Optional[str] = None
     description: Optional[str] = None
-    provider: Optional[str] = None
+    llm_provider_id: Optional[uuid.UUID] = None
     model: Optional[str] = None
     temperature: Optional[float] = None
     system_prompt: Optional[str] = None
@@ -53,7 +53,7 @@ class AssistantResponse(BaseModel):
     group_id: Optional[uuid.UUID]
     name: str
     description: Optional[str]
-    provider: Optional[str]
+    llm_provider_id: Optional[uuid.UUID]
     model: Optional[str]
     temperature: float
     system_prompt: Optional[str]

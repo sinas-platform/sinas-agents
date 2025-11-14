@@ -31,7 +31,7 @@ async def create_assistant(
         group_id=request.group_id,
         name=request.name,
         description=request.description,
-        provider=request.provider,
+        llm_provider_id=request.llm_provider_id,
         model=request.model,
         temperature=request.temperature or 0.7,
         system_prompt=request.system_prompt,
@@ -141,6 +141,12 @@ async def update_assistant(
         assistant.name = request.name
     if request.description is not None:
         assistant.description = request.description
+    if request.llm_provider_id is not None:
+        assistant.llm_provider_id = request.llm_provider_id
+    if request.model is not None:
+        assistant.model = request.model
+    if request.temperature is not None:
+        assistant.temperature = request.temperature
     if request.system_prompt is not None:
         assistant.system_prompt = request.system_prompt
     if request.enabled_webhooks is not None:

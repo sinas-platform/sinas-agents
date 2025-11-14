@@ -52,11 +52,11 @@ class WebhookToolConverter:
         tools = []
 
         for webhook in webhooks:
-            # Apply filtering
-            if enabled_webhooks is not None and webhook.function_name not in enabled_webhooks:
+            # Apply filtering (enabled_webhooks contains webhook IDs, not function names)
+            if enabled_webhooks is not None and str(webhook.id) not in enabled_webhooks:
                 continue
 
-            if disabled_webhooks is not None and webhook.function_name in disabled_webhooks:
+            if disabled_webhooks is not None and str(webhook.id) in disabled_webhooks:
                 continue
 
             # Look up linked function to get schema

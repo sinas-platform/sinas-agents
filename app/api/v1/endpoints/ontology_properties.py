@@ -20,6 +20,9 @@ from app.schemas.ontology import (
 )
 from app.services.ontology.schema_manager import SchemaManager
 
+# Reserved property names that are auto-generated for all self-managed concepts
+RESERVED_PROPERTY_NAMES = ['id', 'created_at', 'updated_at']
+
 property_router = APIRouter(prefix="/ontology/properties", tags=["Ontology - Properties"])
 relationship_router = APIRouter(prefix="/ontology/relationships", tags=["Ontology - Relationships"])
 
@@ -56,6 +59,13 @@ async def create_property(
         raise HTTPException(status_code=403, detail=f"Not authorized to create properties for {concept.namespace}.{concept.name}")
     set_permission_used(request, required_perm, has_perm=True)
 
+    # Validate property name - check for reserved names
+    if property_data.name.lower() in RESERVED_PROPERTY_NAMES:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Property name '{property_data.name}' is reserved. Reserved names: {', '.join(RESERVED_PROPERTY_NAMES)}"
+        )
+
     # Check if property already exists with same name in this concept
     result = await db.execute(
         select(Property).where(
@@ -67,7 +77,7 @@ async def create_property(
     if existing:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
-            detail=f"Property {property_data.name} already exists for this concept"
+            detail=f"Property '{property_data.name}' already exists for concept {concept.namespace}.{concept.name} (ID: {property_data.concept_id})"
         )
 
     db_property = Property(
@@ -126,8 +136,8 @@ async def list_properties(
     if concept_id:
         query = query.where(Property.concept_id == concept_id)
 
-    result = await db.execute(query.order_by(Property.name))
-    properties = result.scalars().all()
+    result = await db.execute(query.order_by(Property.is_system.desc(), Property.name))
+    properties = list(result.scalars().all())
 
     return properties
 
@@ -214,6 +224,13 @@ async def update_property(
         raise HTTPException(status_code=403, detail=f"Not authorized to update properties for {concept.namespace}.{concept.name}")
     set_permission_used(request, required_perm, has_perm=True)
 
+    # Prevent modification of system properties
+    if property_obj.is_system:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=f"Cannot modify system property '{property_obj.name}'. System properties are read-only."
+        )
+
     # Update fields
     update_data = property_update.model_dump(exclude_unset=True)
     old_property = Property(
@@ -278,6 +295,13 @@ async def delete_property(
         set_permission_used(request, required_perm, has_perm=False)
         raise HTTPException(status_code=403, detail=f"Not authorized to delete properties for {concept.namespace}.{concept.name}")
     set_permission_used(request, required_perm, has_perm=True)
+
+    # Prevent deletion of system properties
+    if property_obj.is_system:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=f"Cannot delete system property '{property_obj.name}'. System properties are required."
+        )
 
     # If concept is self-managed, rename column to deleted_columnname_timestamp
     if concept and concept.is_self_managed:

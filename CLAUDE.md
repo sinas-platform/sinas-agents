@@ -7,10 +7,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ### Docker (Recommended)
 
 ```bash
-# Start with local database (development)
-docker-compose --profile local-db up
-
-# Start with external database (production)
+# Start application (always includes postgres)
 docker-compose up
 
 # Run migrations in container
@@ -292,14 +289,16 @@ await scheduler.schedule_function(
 - `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASSWORD`, `SMTP_DOMAIN` - Email for OTP
 
 **Database:**
-- `DATABASE_URL` - PostgreSQL connection string (or use docker-compose postgres with `POSTGRES_PASSWORD`)
-- `REDIS_URL` - Redis connection (default: localhost:6379)
+- `DATABASE_URL` - PostgreSQL connection string (optional, overrides local postgres)
+- `DATABASE_PASSWORD` - Password for local postgres (required if DATABASE_URL not set)
+- `DATABASE_USER`, `DATABASE_HOST`, `DATABASE_PORT`, `DATABASE_NAME` - Optional postgres config
+- `REDIS_URL` - Redis connection (default: redis://redis:6379/0)
 - `CLICKHOUSE_HOST`, `CLICKHOUSE_PORT`, etc. - ClickHouse config (optional)
 
 **LLM Providers:**
-- `OPENAI_API_KEY` - OpenAI API key
-- `LOCAL_LLM_ENDPOINT` - Ollama endpoint (default: http://localhost:11434)
-- `DEFAULT_LLM_PROVIDER` - Default provider (openai, ollama, etc.)
+- LLM providers are now managed via the `/api/v1/llm-providers` API (admin only)
+- No environment variables needed - configure through the database after startup
+- API keys are encrypted in the database using `ENCRYPTION_KEY`
 
 **Admin:**
 - `SUPERADMIN_EMAIL` - Auto-create admin user on startup if Admins group empty

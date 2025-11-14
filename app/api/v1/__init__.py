@@ -4,6 +4,7 @@ from .endpoints import (
     authentication,
     chats,
     assistants,
+    llm_providers,
     mcp_servers,
     groups,
     users,
@@ -15,6 +16,7 @@ from .endpoints import (
     schedules,
     request_logs,
     contexts,
+    containers,
     ontology_datasources,
     ontology_concepts,
     ontology_properties,
@@ -36,6 +38,7 @@ router = APIRouter()
 router.include_router(authentication.router, prefix="/auth", tags=["authentication"])
 router.include_router(chats.router, prefix="/chats", tags=["chats"])
 router.include_router(assistants.router, prefix="/assistants", tags=["assistants"])
+router.include_router(llm_providers.router, prefix="/llm-providers", tags=["llm-providers"])
 router.include_router(mcp_servers.router, prefix="/mcp", tags=["mcp"])
 router.include_router(groups.router)
 router.include_router(users.router)
@@ -53,6 +56,9 @@ router.include_router(request_logs.router)
 
 # Context Store routes
 router.include_router(contexts.router)
+
+# Container management routes
+router.include_router(containers.router)
 
 # Ontology routes
 router.include_router(ontology_datasources.router)

@@ -98,44 +98,28 @@ class MessageService:
         return chat
 
 
-    async def send_message(
+    async def _prepare_message_context(
         self,
         chat_id: str,
         user_id: str,
-        user_token: str,
         content: str,
-        provider: Optional[str] = None,
-        model: Optional[str] = None,
-        temperature: float = 0.7,
-        max_tokens: Optional[int] = None,
-        enabled_webhooks: Optional[List[str]] = None,
-        disabled_webhooks: Optional[List[str]] = None,
-        enabled_mcp_tools: Optional[List[str]] = None,
-        disabled_mcp_tools: Optional[List[str]] = None,
-        inject_context: bool = True,
-        context_namespaces: Optional[List[str]] = None,
-        context_limit: int = 5,
-        template_variables: Optional[Dict[str, Any]] = None,
-    ) -> Message:
+        provider: Optional[str],
+        model: Optional[str],
+        temperature: float,
+        enabled_webhooks: Optional[List[str]],
+        disabled_webhooks: Optional[List[str]],
+        enabled_mcp_tools: Optional[List[str]],
+        disabled_mcp_tools: Optional[List[str]],
+        inject_context: bool,
+        context_namespaces: Optional[List[str]],
+        context_limit: int,
+        template_variables: Optional[Dict[str, Any]]
+    ) -> Dict[str, Any]:
         """
-        Send a message and get LLM response (non-streaming).
+        Prepare message context (shared logic for streaming and non-streaming).
 
-        Args:
-            chat_id: Chat ID
-            user_id: User ID
-            user_token: User's JWT or API key
-            content: Message content
-            provider: LLM provider name
-            model: Model name
-            temperature: Sampling temperature
-            max_tokens: Max tokens to generate
-            enabled_webhooks: Override enabled webhooks
-            disabled_webhooks: Disabled webhooks
-            enabled_mcp_tools: Override enabled MCP tools
-            disabled_mcp_tools: Disabled MCP tools
-
-        Returns:
-            Assistant's response message
+        Returns dict with: chat, user_message, messages, tools, llm_provider,
+        provider_name, final_model, final_temperature
         """
         # Get chat
         result = await self.db.execute(
@@ -148,15 +132,37 @@ class MessageService:
         # Get assistant settings if chat has an assistant
         assistant = None
         if chat.assistant_id:
+            from sqlalchemy.orm import joinedload
             result = await self.db.execute(
-                select(Assistant).where(Assistant.id == chat.assistant_id)
+                select(Assistant)
+                .options(joinedload(Assistant.llm_provider))
+                .where(Assistant.id == chat.assistant_id)
             )
             assistant = result.scalar_one_or_none()
 
         # Determine final provider/model/temperature
-        # Priority: message params > assistant settings > system defaults
-        final_provider = provider or (assistant.provider if assistant else None) or settings.default_llm_provider
-        final_model = model or (assistant.model if assistant else None) or settings.default_model
+        # Priority: message params > assistant settings > database default
+
+        # Get provider name (for create_provider call)
+        provider_name = None
+        if provider:
+            provider_name = provider
+        elif assistant and assistant.llm_provider_id:
+            # Load provider relationship if needed
+            if not assistant.llm_provider:
+                from app.models import LLMProvider
+                result = await self.db.execute(
+                    select(LLMProvider).where(LLMProvider.id == assistant.llm_provider_id)
+                )
+                assistant.llm_provider = result.scalar_one_or_none()
+            if assistant.llm_provider:
+                provider_name = assistant.llm_provider.name
+
+        # Get model: message param > assistant model > provider default
+        final_model = model or (assistant.model if assistant else None)
+        if not final_model and assistant and assistant.llm_provider:
+            final_model = assistant.llm_provider.default_model
+
         final_temperature = temperature if temperature != 0.7 else (assistant.temperature if assistant else 0.7)
 
         # Save user message
@@ -192,15 +198,86 @@ class MessageService:
         )
 
         # Create LLM provider
-        llm_provider = create_provider(final_provider, final_model)
+        llm_provider = await create_provider(provider_name, final_model, self.db)
 
-        # Get response from LLM
+        # If no model specified, use the provider's default model
+        if not final_model:
+            from app.models import LLMProvider
+            # Get the provider config that was used
+            if provider_name:
+                result = await self.db.execute(
+                    select(LLMProvider).where(
+                        LLMProvider.name == provider_name,
+                        LLMProvider.is_active == True
+                    )
+                )
+            else:
+                result = await self.db.execute(
+                    select(LLMProvider).where(
+                        LLMProvider.is_default == True,
+                        LLMProvider.is_active == True
+                    )
+                )
+            provider_config = result.scalar_one_or_none()
+            if provider_config:
+                final_model = provider_config.default_model
+
+        return {
+            "chat": chat,
+            "user_message": user_message,
+            "messages": messages,
+            "tools": tools,
+            "llm_provider": llm_provider,
+            "provider_name": provider_name,
+            "final_model": final_model,
+            "final_temperature": final_temperature
+        }
+
+    async def send_message(
+        self,
+        chat_id: str,
+        user_id: str,
+        user_token: str,
+        content: str,
+        provider: Optional[str] = None,
+        model: Optional[str] = None,
+        temperature: float = 0.7,
+        max_tokens: Optional[int] = None,
+        enabled_webhooks: Optional[List[str]] = None,
+        disabled_webhooks: Optional[List[str]] = None,
+        enabled_mcp_tools: Optional[List[str]] = None,
+        disabled_mcp_tools: Optional[List[str]] = None,
+        inject_context: bool = True,
+        context_namespaces: Optional[List[str]] = None,
+        context_limit: int = 5,
+        template_variables: Optional[Dict[str, Any]] = None,
+    ) -> Message:
+        """Send a message and get LLM response (non-streaming)."""
+        # Prepare message context
+        prep = await self._prepare_message_context(
+            chat_id=chat_id,
+            user_id=user_id,
+            content=content,
+            provider=provider,
+            model=model,
+            temperature=temperature,
+            enabled_webhooks=enabled_webhooks,
+            disabled_webhooks=disabled_webhooks,
+            enabled_mcp_tools=enabled_mcp_tools,
+            disabled_mcp_tools=disabled_mcp_tools,
+            inject_context=inject_context,
+            context_namespaces=context_namespaces,
+            context_limit=context_limit,
+            template_variables=template_variables
+        )
+
+        # Get response from LLM (non-streaming)
         start_time = datetime.now(timezone.utc)
-        response = await llm_provider.complete(
-            messages=messages,
-            model=final_model,
-            tools=tools if tools else None,
-            temperature=final_temperature,
+        response = await prep["llm_provider"].complete(
+            messages=prep["messages"],
+            model=prep["final_model"],
+            tools=prep["tools"] if prep["tools"] else None,
+            temperature=prep["final_temperature"],
             max_tokens=max_tokens
         )
         end_time = datetime.now(timezone.utc)
@@ -209,10 +286,10 @@ class MessageService:
         await self._log_request(
             user_id=user_id,
             chat_id=str(chat_id),
-            message_id=str(user_message.id),
-            provider=final_provider,
-            model=final_model,
-            messages=messages,
+            message_id=str(prep["user_message"].id),
+            provider=prep["provider_name"],
+            model=prep["final_model"],
+            messages=prep["messages"],
             response=response,
             latency_ms=int((end_time - start_time).total_seconds() * 1000)
         )
@@ -223,13 +300,13 @@ class MessageService:
                 chat_id=chat_id,
                 user_id=user_id,
                 user_token=user_token,
-                messages=messages,
+                messages=prep["messages"],
                 tool_calls=response["tool_calls"],
-                provider=provider,
-                model=model,
-                temperature=temperature,
+                provider=prep["provider_name"],
+                model=prep["final_model"],
+                temperature=prep["final_temperature"],
                 max_tokens=max_tokens,
-                tools=tools
+                tools=prep["tools"]
             )
 
         # Save assistant message
@@ -246,7 +323,7 @@ class MessageService:
 
         return assistant_message
 
-    async def stream_message(
+    async def send_message_stream(
         self,
         chat_id: str,
         user_id: str,
@@ -271,66 +348,65 @@ class MessageService:
         Yields:
             Dict chunks with response data
         """
-        # Get chat
-        result = await self.db.execute(
-            select(Chat).where(Chat.id == chat_id, Chat.user_id == user_id)
-        )
-        chat = result.scalar_one_or_none()
-        if not chat:
-            raise ValueError("Chat not found")
-
-        # Get assistant settings if chat has an assistant
-        assistant = None
-        if chat.assistant_id:
-            result = await self.db.execute(
-                select(Assistant).where(Assistant.id == chat.assistant_id)
-            )
-            assistant = result.scalar_one_or_none()
-
-        # Determine final provider/model/temperature
-        # Priority: message params > assistant settings > system defaults
-        final_provider = provider or (assistant.provider if assistant else None) or settings.default_llm_provider
-        final_model = model or (assistant.model if assistant else None) or settings.default_model
-        final_temperature = temperature if temperature != 0.7 else (assistant.temperature if assistant else 0.7)
-
-        # Save user message
-        user_message = Message(
+        # Prepare message (reuse common logic)
+        prep = await self._prepare_message_context(
             chat_id=chat_id,
-            role="user",
-            content=content,
-            enabled_webhooks=enabled_webhooks,
-            enabled_mcp_tools=enabled_mcp_tools
-        )
-        self.db.add(user_message)
-        await self.db.commit()
-        await self.db.refresh(user_message)
-
-        # Build conversation history
-        messages = await self._build_conversation_history(
-            chat=chat,
-            inject_context=inject_context,
             user_id=user_id,
+            content=content,
+            provider=provider,
+            model=model,
+            temperature=temperature,
+            enabled_webhooks=enabled_webhooks,
+            disabled_webhooks=disabled_webhooks,
+            enabled_mcp_tools=enabled_mcp_tools,
+            disabled_mcp_tools=disabled_mcp_tools,
+            inject_context=inject_context,
             context_namespaces=context_namespaces,
             context_limit=context_limit,
             template_variables=template_variables
         )
 
-        # Get available tools
-        tools = await self._get_available_tools(
+        # Stream response
+        async for chunk in self._stream_response(
+            llm_provider=prep["llm_provider"],
+            messages=prep["messages"],
+            final_model=prep["final_model"],
+            tools=prep["tools"],
+            final_temperature=prep["final_temperature"],
+            max_tokens=max_tokens,
+            chat_id=chat_id,
             user_id=user_id,
-            chat=chat,
-            message_enabled_webhooks=enabled_webhooks,
-            message_disabled_webhooks=disabled_webhooks,
-            message_enabled_mcp=enabled_mcp_tools,
-            message_disabled_mcp=disabled_mcp_tools
-        )
+            user_token=user_token,
+            enabled_webhooks=enabled_webhooks,
+            enabled_mcp_tools=enabled_mcp_tools,
+            provider_name=prep["provider_name"],
+        ):
+            yield chunk
 
-        # Create LLM provider
-        llm_provider = create_provider(final_provider, final_model)
+    async def _stream_response(
+        self,
+        llm_provider,
+        messages: List[Dict[str, Any]],
+        final_model: Optional[str],
+        tools: Optional[List[Dict[str, Any]]],
+        final_temperature: float,
+        max_tokens: Optional[int],
+        chat_id: str,
+        user_id: str,
+        user_token: str,
+        enabled_webhooks: Optional[List[str]],
+        enabled_mcp_tools: Optional[List[str]],
+        provider_name: Optional[str],
+    ) -> AsyncIterator[Dict[str, Any]]:
+        """
+        Stream LLM response.
 
+        Yields:
+            Dict chunks with response data
+        """
         # Stream response
         full_content = ""
-        tool_calls = []
+        tool_calls_list = []  # Accumulate tool calls by index (OpenAI sends by index)
 
         async for chunk in llm_provider.stream(
             messages=messages,
@@ -342,10 +418,40 @@ class MessageService:
             if chunk.get("content"):
                 full_content += chunk["content"]
 
+            # Accumulate tool calls (streaming sends deltas with index)
             if chunk.get("tool_calls"):
-                tool_calls.extend(chunk["tool_calls"])
+                for tc in chunk["tool_calls"]:
+                    # OpenAI sends tool calls with an index property in streaming
+                    # First chunk has id/type/name, subsequent chunks have only arguments
+                    tc_index = tc.get("index", 0)
+
+                    # Extend list if needed
+                    while len(tool_calls_list) <= tc_index:
+                        tool_calls_list.append({
+                            "id": None,
+                            "type": "function",
+                            "function": {
+                                "name": "",
+                                "arguments": ""
+                            }
+                        })
+
+                    # Update ID, type, name if provided (first chunk)
+                    if tc.get("id"):
+                        tool_calls_list[tc_index]["id"] = tc["id"]
+                    if tc.get("type"):
+                        tool_calls_list[tc_index]["type"] = tc["type"]
+                    if tc.get("function", {}).get("name"):
+                        tool_calls_list[tc_index]["function"]["name"] = tc["function"]["name"]
+
+                    # Accumulate arguments (all chunks)
+                    if tc.get("function", {}).get("arguments"):
+                        tool_calls_list[tc_index]["function"]["arguments"] += tc["function"]["arguments"]
 
             yield chunk
+
+        # Use accumulated tool calls
+        tool_calls = tool_calls_list if tool_calls_list else []
 
         # Save assistant message after streaming completes
         assistant_message = Message(
@@ -368,9 +474,9 @@ class MessageService:
                 user_token=user_token,
                 messages=messages,
                 tool_calls=tool_calls,
-                provider=provider,
-                model=model,
-                temperature=temperature,
+                provider=provider_name,
+                model=final_model,
+                temperature=final_temperature,
                 max_tokens=max_tokens,
                 tools=tools
             )
@@ -420,44 +526,49 @@ class MessageService:
                     system_content = assistant.system_prompt
 
         # Inject relevant context if enabled
-        if inject_context and user_id:
+        # No assistant = no context injection
+        if inject_context and user_id and chat.assistant_id:
             # Determine which namespaces to use:
             # 1. Message-level context_namespaces (most specific)
-            # 2. Assistant-level context_namespaces (if assistant exists)
-            # 3. None (all namespaces)
+            # 2. Assistant-level context_namespaces
             final_namespaces = context_namespaces
-            if final_namespaces is None and chat.assistant_id:
+            if final_namespaces is None:
                 result = await self.db.execute(
                     select(Assistant).where(Assistant.id == chat.assistant_id)
                 )
                 assistant = result.scalar_one_or_none()
-                if assistant and assistant.context_namespaces is not None:
+                if assistant:
                     final_namespaces = assistant.context_namespaces
 
-            relevant_contexts = await ContextTools.get_relevant_contexts(
-                db=self.db,
-                user_id=user_id,
-                assistant_id=str(chat.assistant_id) if chat.assistant_id else None,
-                group_id=str(chat.group_id) if chat.group_id else None,
-                namespaces=final_namespaces,
-                limit=context_limit
-            )
+            # Context access is opt-in: None or [] means no access
+            if final_namespaces is None or len(final_namespaces) == 0:
+                # No namespaces = no context injection
+                pass
+            else:
+                relevant_contexts = await ContextTools.get_relevant_contexts(
+                    db=self.db,
+                    user_id=user_id,
+                    assistant_id=str(chat.assistant_id) if chat.assistant_id else None,
+                    group_id=str(chat.group_id) if chat.group_id else None,
+                    namespaces=final_namespaces,
+                    limit=context_limit
+                )
 
-            if relevant_contexts:
-                context_section = "\n\n## Stored Context\n"
-                context_section += "The following information has been saved about the user and should inform your responses:\n\n"
+                if relevant_contexts:
+                    context_section = "\n\n## Stored Context\n"
+                    context_section += "The following information has been saved about the user and should inform your responses:\n\n"
 
-                for ctx in relevant_contexts:
-                    context_section += f"**{ctx.namespace}/{ctx.key}**"
-                    if ctx.description:
-                        context_section += f" - {ctx.description}"
-                    context_section += "\n"
-                    context_section += f"```json\n{json.dumps(ctx.value, indent=2)}\n```\n\n"
+                    for ctx in relevant_contexts:
+                        context_section += f"**{ctx.namespace}/{ctx.key}**"
+                        if ctx.description:
+                            context_section += f" - {ctx.description}"
+                        context_section += "\n"
+                        context_section += f"```json\n{json.dumps(ctx.value, indent=2)}\n```\n\n"
 
-                if system_content:
-                    system_content += context_section
-                else:
-                    system_content = context_section.strip()
+                    if system_content:
+                        system_content += context_section
+                    else:
+                        system_content = context_section.strip()
 
         if system_content:
             messages.append({
@@ -544,41 +655,74 @@ class MessageService:
         """Get all available tools (webhooks + MCP + context + ontology + assistants + execution continuation)."""
         tools = []
 
-        # Add context tools (always available)
-        context_tool_defs = ContextTools.get_tool_definitions()
+        # No assistant = no tools
+        if not chat.assistant_id:
+            return tools
+
+        # Get assistant configuration
+        assistant = None
+        result = await self.db.execute(
+            select(Assistant).where(Assistant.id == chat.assistant_id)
+        )
+        assistant = result.scalar_one_or_none()
+        if not assistant:
+            return tools
+
+        # Add context tools (based on assistant's context_namespaces)
+        context_tool_defs = await ContextTools.get_tool_definitions(
+            db=self.db,
+            user_id=user_id,
+            assistant_context_namespaces=assistant.context_namespaces
+        )
         tools.extend(context_tool_defs)
 
-        # Add ontology tools (always available)
-        ontology_tool_defs = OntologyTools.get_tool_definitions()
+        # Add ontology tools (filtered by assistant's ontology_namespaces and ontology_concepts)
+        ontology_tool_defs = await OntologyTools.get_tool_definitions(
+            db=self.db,
+            user_id=user_id,
+            ontology_namespaces=assistant.ontology_namespaces,
+            ontology_concepts=assistant.ontology_concepts
+        )
         tools.extend(ontology_tool_defs)
 
-        # Add assistant tools
-        assistant_enabled = chat.enabled_assistants or []
+        # Add assistant tools (other assistants this assistant can call)
+        assistant_enabled = assistant.enabled_assistants or []
         if assistant_enabled:
             assistant_tools = await self._get_assistant_tools(assistant_enabled)
             tools.extend(assistant_tools)
 
         # Determine webhook configuration
-        webhook_enabled = message_enabled_webhooks or chat.enabled_webhooks or None
+        # Priority: message override > assistant config
+        # Note: Empty list [] means no webhooks, None means all webhooks
+        if message_enabled_webhooks is not None:
+            webhook_enabled = message_enabled_webhooks
+        else:
+            webhook_enabled = assistant.enabled_webhooks
         webhook_disabled = message_disabled_webhooks or []
 
-        # Get webhook tools
-        webhook_tools = await self.webhook_converter.get_available_webhooks(
-            db=self.db,
-            user_id=user_id,
-            enabled_webhooks=webhook_enabled,
-            disabled_webhooks=webhook_disabled
-        )
-        tools.extend(webhook_tools)
+        # Get webhook tools (only if list has items - opt-in)
+        if webhook_enabled and len(webhook_enabled) > 0:
+            webhook_tools = await self.webhook_converter.get_available_webhooks(
+                db=self.db,
+                user_id=user_id,
+                enabled_webhooks=webhook_enabled,
+                disabled_webhooks=webhook_disabled
+            )
+            tools.extend(webhook_tools)
 
         # Determine MCP configuration
-        mcp_enabled = message_enabled_mcp or chat.enabled_mcp_tools or None
+        # Priority: message override > assistant config
+        if message_enabled_mcp is not None:
+            mcp_enabled = message_enabled_mcp
+        else:
+            mcp_enabled = assistant.enabled_mcp_tools
 
-        # Get MCP tools
-        mcp_tools = await mcp_client.get_available_tools(
-            enabled_tools=mcp_enabled
-        )
-        tools.extend(mcp_tools)
+        # Get MCP tools (only if list has items - opt-in)
+        if mcp_enabled and len(mcp_enabled) > 0:
+            mcp_tools = await mcp_client.get_available_tools(
+                enabled_tools=mcp_enabled
+            )
+            tools.extend(mcp_tools)
 
         # Check for paused executions belonging to this chat
         result = await self.db.execute(
@@ -700,9 +844,14 @@ class MessageService:
         model: Optional[str],
         temperature: float,
         max_tokens: Optional[int],
-        tools: List[Dict[str, Any]]
+        tools: List[Dict[str, Any]],
+        permissions: Optional[Dict[str, bool]] = None
     ) -> Message:
         """Execute tool calls and get final response."""
+        # Get permissions if not provided
+        if permissions is None:
+            from app.core.auth import get_user_permissions
+            permissions = await get_user_permissions(self.db, user_id)
         # Save assistant message with tool calls
         assistant_message = Message(
             chat_id=chat_id,
@@ -738,7 +887,7 @@ class MessageService:
                         group_id=str(chat.group_id) if chat and chat.group_id else None,
                         assistant_id=str(chat.assistant_id) if chat and chat.assistant_id else None
                     )
-                elif tool_name in ["explore_ontology", "query_business_data", "create_ontology_data_record", "update_ontology_data_record"]:
+                elif tool_name in ["explore_ontology", "query_ontology_records", "create_ontology_data_record", "update_ontology_data_record"]:
                     # Handle ontology tools
                     result = await OntologyTools.execute_tool(
                         db=self.db,
@@ -746,7 +895,8 @@ class MessageService:
                         arguments=arguments,
                         user_id=user_id,
                         group_id=str(chat.group_id) if chat and chat.group_id else None,
-                        assistant_id=str(chat.assistant_id) if chat and chat.assistant_id else None
+                        assistant_id=str(chat.assistant_id) if chat and chat.assistant_id else None,
+                        permissions=permissions
                     )
                 elif tool_name == "continue_execution":
                     # Handle execution continuation
@@ -782,7 +932,9 @@ class MessageService:
                 result_content = json.dumps(result) if not isinstance(result, str) else result
 
             except Exception as e:
+                import traceback
                 logger.error(f"Tool execution failed: {e}")
+                logger.error(f"Traceback: {traceback.format_exc()}")
                 result_content = json.dumps({"error": str(e)})
 
             # Save tool result message
@@ -815,10 +967,10 @@ class MessageService:
                 message_dict["name"] = msg.name
             updated_messages.append(message_dict)
 
-        llm_provider = create_provider(provider, model)
+        llm_provider = await create_provider(provider, model, self.db)
         final_response = await llm_provider.complete(
             messages=updated_messages,
-            model=model or settings.default_model,
+            model=model,
             tools=tools,
             temperature=temperature,
             max_tokens=max_tokens

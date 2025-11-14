@@ -75,12 +75,50 @@ async def create_concept(
     await db.commit()
     await db.refresh(db_concept)
 
-    # If self-managed, create the table structure (initially empty, properties added later)
+    # If self-managed, create system properties and table
     if db_concept.is_self_managed:
+        from app.models.ontology import DataType
+
+        # Create system properties
+        system_properties = [
+            Property(
+                concept_id=db_concept.id,
+                name='id',
+                display_name='ID',
+                description='Auto-generated unique identifier',
+                data_type=DataType.STRING,
+                is_identifier=True,
+                is_required=True,
+                is_system=True,
+            ),
+            Property(
+                concept_id=db_concept.id,
+                name='created_at',
+                display_name='Created At',
+                description='Auto-generated creation timestamp',
+                data_type=DataType.DATETIME,
+                is_required=True,
+                is_system=True,
+            ),
+            Property(
+                concept_id=db_concept.id,
+                name='updated_at',
+                display_name='Updated At',
+                description='Auto-generated update timestamp',
+                data_type=DataType.DATETIME,
+                is_required=True,
+                is_system=True,
+            ),
+        ]
+
+        for prop in system_properties:
+            db.add(prop)
+
+        await db.commit()
+
+        # Create the table structure with system properties
         schema_manager = SchemaManager(db)
-        # Table will be created when first property is added
-        # Or we can create it with just id + audit columns
-        await schema_manager.create_table(db_concept, [])
+        await schema_manager.create_table(db_concept, system_properties)
 
     return db_concept
 

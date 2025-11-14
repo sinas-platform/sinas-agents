@@ -106,14 +106,19 @@ class OpenAIProvider(BaseLLMProvider):
         formatted = []
 
         for tc in tool_calls:
-            formatted.append({
-                "id": tc.id,
-                "type": tc.type,
+            tool_call_dict = {
+                "id": tc.id if hasattr(tc, 'id') else None,
+                "type": tc.type if hasattr(tc, 'type') else "function",
                 "function": {
-                    "name": tc.function.name,
-                    "arguments": tc.function.arguments
+                    "name": tc.function.name if hasattr(tc.function, 'name') else None,
+                    "arguments": tc.function.arguments if hasattr(tc.function, 'arguments') else None
                 }
-            })
+            }
+            # Include index if present (used in streaming)
+            if hasattr(tc, 'index'):
+                tool_call_dict["index"] = tc.index
+
+            formatted.append(tool_call_dict)
 
         return formatted
 

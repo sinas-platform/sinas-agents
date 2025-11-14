@@ -74,6 +74,17 @@ sinas.mcp.update:all
 sinas.mcp.delete:all
 sinas.mcp.execute:all
 
+# LLM Providers - LLM Provider Configuration
+sinas.llm_providers.create:all
+sinas.llm_providers.read:all
+sinas.llm_providers.update:all
+sinas.llm_providers.delete:all
+
+# Containers - User Container Management
+sinas.containers.read:all
+sinas.containers.update:all
+sinas.containers.delete:all
+
 # Users - User Management
 sinas.users.read:own
 sinas.users.update:own

@@ -48,22 +48,14 @@ class Settings(BaseSettings):
     smtp_server_host: str = "0.0.0.0"
     smtp_server_port: int = 2525  # Port for incoming email SMTP server
 
-    # LLM Provider Configuration
-    openai_api_key: Optional[str] = None
-    openai_api_base_url: Optional[str] = None
-    anthropic_api_key: Optional[str] = None
-    local_llm_endpoint: Optional[str] = None
-    private_cloud_endpoint: Optional[str] = None
-    private_cloud_api_key: Optional[str] = None
-    default_llm_provider: str = "openai"
-    default_model: Optional[str] = None
-
     # Function execution
     function_timeout: int = 300  # 5 minutes
     max_function_memory: int = 512  # MB
+    function_execution_mode: str = "inline"  # "inline" or "docker" (docker requires Docker socket access)
 
     # Package management
     allow_package_installation: bool = True
+    allowed_packages: Optional[str] = None  # Comma-separated whitelist, None = all allowed
 
     # Encryption
     encryption_key: Optional[str] = None  # Fernet key for encrypting sensitive data

@@ -18,8 +18,10 @@ class Assistant(Base):
     description: Mapped[Optional[str]] = mapped_column(Text)
 
     # LLM Configuration
-    provider: Mapped[Optional[str]] = mapped_column(String(50))  # "openai", "anthropic", etc.
-    model: Mapped[Optional[str]] = mapped_column(String(100))  # "gpt-4o", "claude-3-opus", etc.
+    llm_provider_id: Mapped[Optional[uuid.UUID]] = mapped_column(
+        ForeignKey("llm_providers.id"), index=True
+    )  # NULL = use default provider
+    model: Mapped[Optional[str]] = mapped_column(String(100))  # NULL = use provider's default model
     temperature: Mapped[float] = mapped_column(Float, default=0.7)
 
     # System Prompt (supports Jinja2 templates)
@@ -56,5 +58,5 @@ class Assistant(Base):
 
     # Relationships
     user: Mapped[Optional["User"]] = relationship("User", back_populates="assistants")
+    llm_provider: Mapped[Optional["LLMProvider"]] = relationship("LLMProvider")
     chats: Mapped[List["Chat"]] = relationship("Chat", back_populates="assistant")
-    context_stores: Mapped[List["ContextStore"]] = relationship("ContextStore", back_populates="assistant")

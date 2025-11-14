@@ -77,6 +77,10 @@ class SchemaManager:
         columns = ["id UUID PRIMARY KEY DEFAULT gen_random_uuid()"]
 
         for prop in properties:
+            # Skip 'id' property as it's automatically created
+            if prop.name.lower() in ['id', 'created_at', 'updated_at']:
+                continue
+
             pg_type = self.get_pg_type(prop.data_type)
             column_def = f"{prop.name} {pg_type}"
 

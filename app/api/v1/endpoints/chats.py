@@ -216,7 +216,7 @@ async def stream_message(
 
     async def event_generator():
         try:
-            async for chunk in service.stream_message(
+            async for chunk in service.send_message_stream(
                 chat_id=chat_id,
                 user_id=user_id,
                 user_token=user_token,

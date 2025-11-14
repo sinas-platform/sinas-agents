@@ -104,6 +104,18 @@ class FunctionExecutor:
     def __init__(self):
         self.functions_cache: Dict[str, Function] = {}
         self.namespace_cache: Dict[str, Dict[str, Any]] = {}
+        self._container_manager = None
+
+    @property
+    def container_manager(self):
+        """Lazy load container manager only if docker mode is enabled."""
+        from app.core.config import settings
+        if settings.function_execution_mode == 'docker':
+            if self._container_manager is None:
+                from app.services.user_container_manager import container_manager
+                self._container_manager = container_manager
+            return self._container_manager
+        return None
 
     async def validate_schema(self, data: Any, schema: Dict[str, Any]) -> None:
         """Validate data against JSON schema."""
@@ -134,16 +146,25 @@ class FunctionExecutor:
         return function
 
     async def build_execution_namespace(self, db: AsyncSession, execution_id: str, user_id: str) -> Dict[str, Any]:
-        """Build namespace with all active functions and tracking decorator."""
+        """Build namespace with all functions user has access to (via groups) and tracking decorator."""
         cache_key = f"{user_id}:{execution_id}"
         if cache_key in self.namespace_cache:
             return self.namespace_cache[cache_key]
 
-        # Load all active functions for this user
+        # Load all functions the user has access to through their groups
+        from app.models.user import GroupMember
+
+        # Get user's groups
+        groups_result = await db.execute(
+            select(GroupMember.group_id).where(GroupMember.user_id == user_id)
+        )
+        group_ids = [row[0] for row in groups_result.all()]
+
+        # Load functions from user's groups + user's own functions
         result = await db.execute(
             select(Function).where(
-                Function.user_id == user_id,
-                Function.is_active == True
+                Function.is_active == True,
+                (Function.user_id == user_id) | (Function.group_id.in_(group_ids))
             )
         )
         functions = result.scalars().all()
@@ -152,7 +173,8 @@ class FunctionExecutor:
         tracker = ExecutionTracker(execution_id, db, user_id)
         track_decorator = TrackingDecorator(tracker)
 
-        # Build namespace
+        # Build namespace with full Python access
+        # Isolation is provided by Docker containers per user
         namespace = {
             "track": track_decorator,
             "__builtins__": __builtins__,
@@ -233,29 +255,48 @@ class FunctionExecutor:
                 if not resume_data and function.input_schema:
                     await self.validate_schema(input_data, function.input_schema)
 
-                # Build execution namespace
-                namespace = await self.build_execution_namespace(db, execution_id, user_id)
-
-                # Execute function
+                # Check execution mode
+                from app.core.config import settings
                 start_time = time.time()
 
-                if function_name in namespace:
-                    func = namespace[function_name]
+                if settings.function_execution_mode == 'docker' and self.container_manager:
+                    # Execute in user's Docker container
+                    exec_result = await self.container_manager.execute_function(
+                        user_id=user_id,
+                        function_name=function_name,
+                        input_data=input_data,
+                        execution_id=execution_id,
+                        db=db,
+                    )
 
-                    # Check if function is a generator (stateful)
-                    if inspect.isgeneratorfunction(func):
-                        return await self._execute_generator(
-                            execution, func, input_data, resume_data, db
-                        )
-                    elif asyncio.iscoroutinefunction(func):
-                        result = await func(input_data)
-                    else:
-                        result = func(input_data)
+                    if exec_result.get('status') == 'failed':
+                        raise FunctionExecutionError(exec_result.get('error', 'Unknown error'))
+
+                    result = exec_result.get('result')
+                    duration_ms = exec_result.get('duration_ms', 0)
+
                 else:
-                    raise FunctionExecutionError(f"Function '{function_name}' not found in namespace")
+                    # Execute in-process (current behavior)
+                    # Build execution namespace
+                    namespace = await self.build_execution_namespace(db, execution_id, user_id)
 
-                end_time = time.time()
-                duration_ms = int((end_time - start_time) * 1000)
+                    if function_name in namespace:
+                        func = namespace[function_name]
+
+                        # Check if function is a generator (stateful)
+                        if inspect.isgeneratorfunction(func):
+                            return await self._execute_generator(
+                                execution, func, input_data, resume_data, db
+                            )
+                        elif asyncio.iscoroutinefunction(func):
+                            result = await func(input_data)
+                        else:
+                            result = func(input_data)
+                    else:
+                        raise FunctionExecutionError(f"Function '{function_name}' not found in namespace")
+
+                    end_time = time.time()
+                    duration_ms = int((end_time - start_time) * 1000)
 
                 # Validate output
                 if function.output_schema:

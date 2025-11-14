@@ -5,8 +5,6 @@ services:
   redis:
     image: redis:7-alpine
     container_name: sinas-redis
-    ports:
-      - "6379:6379"
     command: redis-server --appendonly yes
     volumes:
       - redis_data:/data
@@ -20,9 +18,6 @@ services:
   clickhouse:
     image: clickhouse/clickhouse-server:24-alpine
     container_name: sinas-clickhouse
-    ports:
-      - "8123:8123"  # HTTP interface
-      - "9000:9000"  # Native interface
     environment:
       CLICKHOUSE_DB: sinas
       CLICKHOUSE_USER: ${CLICKHOUSE_USER:-default}
@@ -51,8 +46,6 @@ services:
   mongodb:
     image: mongo:7-jammy
     container_name: sinas-mongodb
-    ports:
-      - "27017:27017"
     environment:
       MONGO_INITDB_ROOT_USERNAME: ${MONGO_USERNAME:-mongodb}
       MONGO_INITDB_ROOT_PASSWORD: ${MONGO_PASSWORD:-mongopassword}
@@ -65,28 +58,21 @@ services:
       timeout: 5s
       retries: 5
 
-  # PostgreSQL - only used if DATABASE_URL is not set
-  # Requires POSTGRES_PASSWORD to be set in .env
+  # PostgreSQL - always runs, used if DATABASE_URL not set
   postgres:
     image: postgres:16-alpine
     container_name: sinas-postgres
     environment:
-      POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set in .env file}
-      POSTGRES_DB: sinas
-    ports:
-      - "5432:5432"
+      POSTGRES_USER: ${DATABASE_USER:-postgres}
+      POSTGRES_PASSWORD: ${DATABASE_PASSWORD:?DATABASE_PASSWORD must be set in .env file}
+      POSTGRES_DB: ${DATABASE_NAME:-sinas}
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      test: ["CMD-SHELL", "pg_isready -U ${DATABASE_USER:-postgres}"]
       interval: 5s
       timeout: 3s
       retries: 5
-    profiles:
-      # Only start postgres if using local database
-      # Use: docker-compose --profile local-db up
-      - local-db
 
   # SINAS Application
   app:
@@ -95,13 +81,16 @@ services:
       dockerfile: Dockerfile
     container_name: sinas-app
     ports:
-      - "8000:8000"
-      - "2525:2525"  # SMTP server for receiving emails
+      - "${APP_PORT:-8000}:8000"
+    volumes:
+      # Mount code for development (comment out for production)
+      - .:/app
+      # Mount Docker socket for container-per-user execution
+      - /var/run/docker.sock:/var/run/docker.sock
     environment:
       # Database configuration
-      # If using external database, set DATABASE_URL in .env
-      # If using local postgres (--profile local-db), set POSTGRES_PASSWORD in .env
-      DATABASE_URL: ${DATABASE_URL:?DATABASE_URL must be set in .env file}
+      # Set DATABASE_URL for external DB, or set DATABASE_PASSWORD to use local postgres
+      DATABASE_URL: ${DATABASE_URL:-postgresql://${DATABASE_USER:-postgres}:${DATABASE_PASSWORD}@${DATABASE_HOST:-postgres}:${DATABASE_PORT:-5432}/${DATABASE_NAME:-sinas}}
 
       # Redis configuration (hardcoded to docker service)
       REDIS_URL: redis://redis:6379/0
@@ -133,16 +122,6 @@ services:
       SMTP_PASSWORD: ${SMTP_PASSWORD}
       SMTP_DOMAIN: ${SMTP_DOMAIN}
 
-      # SMTP Server Configuration (for receiving emails)
-      SMTP_SERVER_HOST: ${SMTP_SERVER_HOST:-0.0.0.0}
-      SMTP_SERVER_PORT: ${SMTP_SERVER_PORT:-2525}
-
-      # LLM Provider Configuration
-      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
-      LOCAL_LLM_ENDPOINT: ${LOCAL_LLM_ENDPOINT:-http://host.docker.internal:11434}
-      DEFAULT_LLM_PROVIDER: ${DEFAULT_LLM_PROVIDER:-ollama}
-      DEFAULT_MODEL: ${DEFAULT_MODEL:-}
-
       # Function Execution Settings
       FUNCTION_TIMEOUT: ${FUNCTION_TIMEOUT:-300}
       MAX_FUNCTION_MEMORY: ${MAX_FUNCTION_MEMORY:-512}
@@ -164,9 +143,6 @@ services:
         condition: service_healthy
       postgres:
         condition: service_healthy
-    volumes:
-      # Mount code for development (comment out for production)
-      - .:/app
     command: sh -c "alembic upgrade head && uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload"
 
 volumes:

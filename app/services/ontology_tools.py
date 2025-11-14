@@ -1,8 +1,9 @@
 """Ontology tools for LLM to query and write business data."""
 from typing import List, Dict, Any, Optional
 import uuid as uuid_lib
+from datetime import datetime
 
-from sqlalchemy import select, and_, or_, func
+from sqlalchemy import select, and_, or_, func, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.ontology import (
@@ -10,31 +11,69 @@ from app.models.ontology import (
     ConceptQuery, Endpoint, EndpointProperty, EndpointFilter
 )
 from app.models.user import GroupMember
+from app.models.assistant import Assistant
+from app.core.permissions import check_permission
+from app.services.ontology.ontology_utils import (
+    get_user_group_ids as util_get_user_group_ids,
+    has_wildcard_ontology_access,
+    get_concept_by_name,
+    get_concept_properties,
+    get_dynamic_table_name
+)
 
 
 class OntologyTools:
     """Provides LLM tools for interacting with ontology and business data."""
 
     @staticmethod
-    def get_tool_definitions() -> List[Dict[str, Any]]:
+    async def get_tool_definitions(
+        db: Optional[AsyncSession] = None,
+        user_id: Optional[str] = None,
+        ontology_namespaces: Optional[List[str]] = None,
+        ontology_concepts: Optional[List[str]] = None
+    ) -> List[Dict[str, Any]]:
         """
         Get OpenAI-compatible tool definitions for ontology operations.
+
+        Args:
+            db: Optional database session for enriching tool descriptions
+            user_id: Optional user ID for personalizing tool descriptions
+            ontology_namespaces: List of allowed namespaces (None = all)
+            ontology_concepts: List of allowed concepts in format "namespace.concept" (None = all)
 
         Returns:
             List of tool definitions
         """
+        # Opt-in: None or empty namespaces = no access
+        if ontology_namespaces is None or len(ontology_namespaces) == 0:
+            return []
+        # Empty concepts list means "all concepts in allowed namespaces"
+        # So we don't check concepts here
+
+        # Get available concepts if db and user_id provided
+        available_concepts_info = ""
+        if db and user_id:
+            available_concepts_info = await OntologyTools._get_available_concepts_description(
+                db, user_id, ontology_namespaces, ontology_concepts
+            )
+
+        explore_description = (
+            "Explore the business ontology to understand available concepts (entities), "
+            "their properties (attributes), and relationships. Use this to discover what "
+            "business data is available and how different entities relate to each other. "
+            "Examples: exploring customer concepts, finding product properties, discovering "
+            "order-customer relationships."
+        )
+
+        if available_concepts_info:
+            explore_description += f"\n\n{available_concepts_info}"
+
         return [
             {
                 "type": "function",
                 "function": {
                     "name": "explore_ontology",
-                    "description": (
-                        "Explore the business ontology to understand available concepts (entities), "
-                        "their properties (attributes), and relationships. Use this to discover what "
-                        "business data is available and how different entities relate to each other. "
-                        "Examples: exploring customer concepts, finding product properties, discovering "
-                        "order-customer relationships."
-                    ),
+                    "description": explore_description,
                     "parameters": {
                         "type": "object",
                         "properties": {
@@ -63,12 +102,11 @@ class OntologyTools:
             {
                 "type": "function",
                 "function": {
-                    "name": "query_business_data",
+                    "name": "query_ontology_records",
                     "description": (
-                        "Query business data using the ontology layer. Provide the concept name "
-                        "and optional filters to retrieve structured business data. This executes "
-                        "pre-configured queries against the underlying data sources. "
-                        "Examples: fetching customers, retrieving orders, getting product inventory."
+                        "Query records from ontology concepts. Retrieve data from self-managed concepts "
+                        "or execute pre-configured queries for external data sources. "
+                        "Examples: fetching deals, retrieving companies, listing customers."
                     ),
                     "parameters": {
                         "type": "object",
@@ -178,7 +216,8 @@ class OntologyTools:
         arguments: Dict[str, Any],
         user_id: str,
         group_id: Optional[str] = None,
-        assistant_id: Optional[str] = None
+        assistant_id: Optional[str] = None,
+        permissions: Optional[Dict[str, bool]] = None
     ) -> Dict[str, Any]:
         """
         Execute an ontology tool.
@@ -195,7 +234,7 @@ class OntologyTools:
             Tool execution result
         """
         # Check assistant-level restrictions before executing
-        if assistant_id and tool_name in ["explore_ontology", "query_business_data", "create_ontology_data_record", "update_ontology_data_record"]:
+        if assistant_id and tool_name in ["explore_ontology", "query_ontology_records", "create_ontology_data_record", "update_ontology_data_record"]:
             can_access = await OntologyTools._check_assistant_ontology_access(
                 db, assistant_id, arguments
             )
@@ -204,21 +243,22 @@ class OntologyTools:
                     "error": "Assistant is not authorized to access this ontology namespace/concept",
                     "suggestion": "Configure assistant's ontology_namespaces and ontology_concepts to allow access"
                 }
+
         if tool_name == "explore_ontology":
             return await OntologyTools._explore_ontology(
-                db, user_id, arguments, group_id
+                db, user_id, arguments, group_id, permissions
             )
-        elif tool_name == "query_business_data":
-            return await OntologyTools._query_business_data(
-                db, user_id, arguments, group_id
+        elif tool_name == "query_ontology_records":
+            return await OntologyTools._query_ontology_records(
+                db, user_id, arguments, group_id, permissions
             )
         elif tool_name == "create_ontology_data_record":
             return await OntologyTools._create_ontology_data_record(
-                db, user_id, arguments, group_id
+                db, user_id, arguments, group_id, permissions
             )
         elif tool_name == "update_ontology_data_record":
             return await OntologyTools._update_ontology_data_record(
-                db, user_id, arguments, group_id
+                db, user_id, arguments, group_id, permissions
             )
         else:
             return {"error": f"Unknown ontology tool: {tool_name}"}
@@ -240,8 +280,6 @@ class OntologyTools:
         Returns:
             True if access is allowed, False otherwise
         """
-        from app.models.assistant import Assistant
-
         # Get assistant
         result = await db.execute(
             select(Assistant).where(Assistant.id == uuid_lib.UUID(assistant_id))
@@ -251,73 +289,151 @@ class OntologyTools:
         if not assistant:
             return True  # If assistant doesn't exist, don't restrict
 
-        # If both are None, assistant has access to everything
-        if assistant.ontology_namespaces is None and assistant.ontology_concepts is None:
-            return True
-
         # Extract namespace and concept from arguments
         namespace = arguments.get("namespace")
-        concept = arguments.get("concept")
+        concept = arguments.get("concept") or arguments.get("concept_name")
 
-        # Check namespace restriction
-        if assistant.ontology_namespaces is not None:
-            if namespace and namespace not in assistant.ontology_namespaces:
-                return False
+        # If ontology_namespaces is None, no access (opt-in)
+        if assistant.ontology_namespaces is None:
+            return False
 
-        # Check concept restriction (format: namespace.concept)
-        if assistant.ontology_concepts is not None:
-            if concept:
-                # If namespace is provided, check namespace.concept
-                if namespace:
-                    full_concept = f"{namespace}.{concept}"
-                    if full_concept not in assistant.ontology_concepts:
-                        # Also check if just concept name is in the list
-                        if concept not in assistant.ontology_concepts:
-                            return False
-                else:
-                    # No namespace provided, just check concept
-                    if concept not in assistant.ontology_concepts:
-                        return False
+        # If namespace is provided, check if it's in allowed namespaces
+        if namespace and namespace not in assistant.ontology_namespaces:
+            return False
 
+        # If ontology_concepts is None or empty, allow all concepts in allowed namespaces
+        if not assistant.ontology_concepts:  # Treats None and [] the same
+            return True
+
+        # If ontology_concepts is specified, check if concept is allowed
+        if concept:
+            # Check namespace.concept format
+            if namespace:
+                full_concept = f"{namespace}.{concept}"
+                if full_concept in assistant.ontology_concepts:
+                    return True
+            # Also check if just concept name is in the list
+            if concept in assistant.ontology_concepts:
+                return True
+            return False
+
+        # No specific concept requested, allowed if namespace is allowed
         return True
+
+    @staticmethod
+    async def _get_available_concepts_description(
+        db: AsyncSession,
+        user_id: str,
+        ontology_namespaces: Optional[List[str]] = None,
+        ontology_concepts: Optional[List[str]] = None
+    ) -> str:
+        """
+        Get a summary of available concepts for this user.
+
+        Args:
+            db: Database session
+            user_id: User ID
+            ontology_namespaces: List of allowed namespaces (None = all)
+            ontology_concepts: List of allowed concepts in format "namespace.concept" (None = all)
+
+        Returns:
+            Formatted string describing available concepts
+        """
+        user_groups = await OntologyTools._get_user_groups(db, user_id)
+
+        # Query all available concepts
+        query = select(
+            Concept.namespace,
+            Concept.name,
+            Concept.display_name
+        ).where(
+            Concept.group_id.in_(user_groups) if user_groups else False
+        )
+
+        # Apply namespace filter if specified
+        if ontology_namespaces is not None:
+            query = query.where(Concept.namespace.in_(ontology_namespaces))
+
+        query = query.order_by(Concept.namespace, Concept.name)
+
+        result = await db.execute(query)
+        concepts = result.all()
+
+        if not concepts:
+            return ""
+
+        # Filter by specific concepts if provided
+        if ontology_concepts is not None:
+            filtered_concepts = []
+            for namespace, name, display_name in concepts:
+                concept_key = f"{namespace}.{name}"
+                if concept_key in ontology_concepts:
+                    filtered_concepts.append((namespace, name, display_name))
+            concepts = filtered_concepts
+
+        if not concepts:
+            return ""
+
+        # Group by namespace
+        by_namespace: Dict[str, List[tuple]] = {}
+        for namespace, name, display_name in concepts:
+            if namespace not in by_namespace:
+                by_namespace[namespace] = []
+            by_namespace[namespace].append((name, display_name))
+
+        # Format as readable list
+        lines = ["Available concepts:"]
+        for namespace in sorted(by_namespace.keys()):
+            concept_list = by_namespace[namespace]
+            formatted_concepts = ", ".join([f"'{name}'" for name, _ in concept_list])
+            lines.append(f"  • {namespace}: {formatted_concepts}")
+
+        return "\n".join(lines)
 
     @staticmethod
     async def _get_user_groups(db: AsyncSession, user_id: str) -> List[uuid_lib.UUID]:
         """Get all group IDs that the user is a member of."""
         user_uuid = uuid_lib.UUID(user_id)
-        result = await db.execute(
-            select(GroupMember.group_id).where(
-                and_(
-                    GroupMember.user_id == user_uuid,
-                    GroupMember.active == True
-                )
-            )
-        )
-        return [row[0] for row in result.all()]
+        return await util_get_user_group_ids(db, user_uuid)
 
     @staticmethod
     async def _explore_ontology(
         db: AsyncSession,
         user_id: str,
         args: Dict[str, Any],
-        group_id: Optional[str]
+        group_id: Optional[str],
+        permissions: Optional[Dict[str, bool]] = None
     ) -> Dict[str, Any]:
         """Explore the ontology structure."""
-        # Get user's groups
-        user_groups = await OntologyTools._get_user_groups(db, user_id)
+        # Check if user has wildcard ontology read permission (admins)
+        wildcard_access = has_wildcard_ontology_access(permissions)
 
-        if group_id:
-            # Filter by specific group
-            group_filter = Concept.group_id == uuid_lib.UUID(group_id)
+        # Build query based on permissions
+        if wildcard_access:
+            # Admin can see all concepts
+            query = select(Concept)
         else:
-            # Include all user's groups
-            group_filter = Concept.group_id.in_(user_groups) if user_groups else False
+            # Get user's groups
+            user_groups = await OntologyTools._get_user_groups(db, user_id)
 
-        # Build query
-        query = select(Concept).where(group_filter)
+            if group_id:
+                # Filter by specific group
+                group_filter = Concept.group_id == uuid_lib.UUID(group_id)
+            else:
+                # Include all user's groups
+                group_filter = Concept.group_id.in_(user_groups) if user_groups else False
+
+            query = select(Concept).where(group_filter)
 
         if "concept_name" in args and args["concept_name"]:
-            query = query.where(Concept.name.ilike(f"%{args['concept_name']}%"))
+            # Use case-insensitive exact match or partial match
+            concept_name = args["concept_name"]
+            query = query.where(
+                or_(
+                    func.lower(Concept.name) == func.lower(concept_name),
+                    Concept.name.ilike(f"%{concept_name}%")
+                )
+            )
 
         if "namespace" in args and args["namespace"]:
             query = query.where(Concept.namespace == args["namespace"])
@@ -403,34 +519,23 @@ class OntologyTools:
         }
 
     @staticmethod
-    async def _query_business_data(
+    async def _query_ontology_records(
         db: AsyncSession,
         user_id: str,
         args: Dict[str, Any],
-        group_id: Optional[str]
+        group_id: Optional[str],
+        permissions: Optional[Dict[str, bool]] = None
     ) -> Dict[str, Any]:
-        """Query business data through the ontology layer."""
-        # Get user's groups
-        user_groups = await OntologyTools._get_user_groups(db, user_id)
-
-        if group_id:
-            group_filter = Concept.group_id == uuid_lib.UUID(group_id)
-        else:
-            group_filter = Concept.group_id.in_(user_groups) if user_groups else False
-
-        # Find the concept
-        query = select(Concept).where(
-            and_(
-                group_filter,
-                Concept.name == args["concept"]
-            )
+        """Query records from ontology concepts."""
+        # Use shared helper to get concept with access control
+        concept = await get_concept_by_name(
+            db=db,
+            concept_name=args["concept"],
+            namespace=args.get("namespace"),
+            user_id=user_id,
+            permissions=permissions,
+            group_id=group_id
         )
-
-        if "namespace" in args and args["namespace"]:
-            query = query.where(Concept.namespace == args["namespace"])
-
-        result = await db.execute(query)
-        concept = result.scalar_one_or_none()
 
         if not concept:
             return {
@@ -438,37 +543,101 @@ class OntologyTools:
                 "suggestion": "Use explore_ontology to see available concepts"
             }
 
-        # For now, return a message that direct querying requires endpoint setup
-        # In a full implementation, this would execute the ConceptQuery
-        return {
-            "success": False,
-            "message": (
-                f"Direct querying of concept '{concept.namespace}.{concept.name}' requires "
-                "endpoint configuration. Use the ontology API endpoints or set up a "
-                "configured endpoint for this concept."
-            ),
-            "concept_info": {
-                "namespace": concept.namespace,
-                "name": concept.name,
-                "is_self_managed": concept.is_self_managed,
-                "has_query": concept.concept_query is not None
+        # For self-managed concepts, query the dynamic table
+        if concept.is_self_managed:
+            table_name = get_dynamic_table_name(concept)
+
+            # Build SELECT query
+            limit = args.get("limit", 10)
+            offset = args.get("offset", 0)
+
+            # Get properties to select
+            properties_to_select = args.get("properties", [])
+            if properties_to_select:
+                columns = ", ".join(properties_to_select)
+            else:
+                columns = "*"
+
+            # Build WHERE clause from filters
+            where_clauses = []
+            params = {}
+            if "filters" in args and args["filters"]:
+                for i, (key, value) in enumerate(args["filters"].items()):
+                    param_name = f"filter_{i}"
+                    where_clauses.append(f"{key} = :{param_name}")
+                    params[param_name] = value
+
+            where_sql = f"WHERE {' AND '.join(where_clauses)}" if where_clauses else ""
+
+            # Execute query
+            query_sql = text(f"""
+                SELECT {columns}
+                FROM {table_name}
+                {where_sql}
+                LIMIT :limit OFFSET :offset
+            """)
+            params['limit'] = limit
+            params['offset'] = offset
+
+            try:
+                result = await db.execute(query_sql, params)
+                rows = result.mappings().all()
+
+                # Convert records to JSON-serializable format
+                records = []
+                for row in rows:
+                    record = {}
+                    for key, value in row.items():
+                        # Handle special types
+                        if isinstance(value, datetime):
+                            record[key] = value.isoformat()
+                        elif hasattr(value, '__float__'):  # Decimal, float, etc
+                            record[key] = float(value)
+                        elif isinstance(value, uuid_lib.UUID):
+                            record[key] = str(value)
+                        else:
+                            record[key] = value
+                    records.append(record)
+
+                return {
+                    "success": True,
+                    "concept": f"{concept.namespace}.{concept.name}",
+                    "count": len(records),
+                    "records": records
+                }
+            except Exception as e:
+                return {
+                    "error": f"Failed to query records: {str(e)}",
+                    "suggestion": "Check your filters and property names"
+                }
+        else:
+            # For external concepts with queries, return not implemented message
+            return {
+                "success": False,
+                "message": (
+                    f"Querying external concept '{concept.namespace}.{concept.name}' requires "
+                    "endpoint configuration. This feature is not yet implemented."
+                ),
+                "concept_info": {
+                    "namespace": concept.namespace,
+                    "name": concept.name,
+                    "is_self_managed": concept.is_self_managed
+                }
             }
-        }
 
     @staticmethod
     async def _create_ontology_data_record(
         db: AsyncSession,
         user_id: str,
         args: Dict[str, Any],
-        group_id: Optional[str]
+        group_id: Optional[str],
+        permissions: Optional[Dict[str, bool]] = None
     ) -> Dict[str, Any]:
         """Create a new ontology data record for self-managed concepts."""
         from app.api.v1.endpoints.ontology_records import (
             get_user_group_ids, get_concept_with_permissions,
             get_dynamic_table_name, validate_data_against_properties
         )
-        from sqlalchemy import text
-        from datetime import datetime
 
         user_uuid = uuid_lib.UUID(user_id)
 
@@ -480,11 +649,11 @@ class OntologyTools:
             # Determine namespace - if not provided, try to find concept by name
             namespace = args.get("namespace")
             if not namespace:
-                # Try to find by concept name alone
+                # Try to find by concept name alone (case-insensitive)
                 result = await db.execute(
                     select(Concept).where(
                         and_(
-                            Concept.name == args["concept"],
+                            func.lower(Concept.name) == func.lower(args["concept"]),
                             Concept.is_self_managed == True,
                             Concept.group_id.in_(user_groups) if user_groups else False
                         )
@@ -559,15 +728,14 @@ class OntologyTools:
         db: AsyncSession,
         user_id: str,
         args: Dict[str, Any],
-        group_id: Optional[str]
+        group_id: Optional[str],
+        permissions: Optional[Dict[str, bool]] = None
     ) -> Dict[str, Any]:
         """Update an existing ontology data record for self-managed concepts."""
         from app.api.v1.endpoints.ontology_records import (
             get_user_group_ids, get_concept_with_permissions,
             get_dynamic_table_name, validate_data_against_properties
         )
-        from sqlalchemy import text
-        from datetime import datetime
 
         user_uuid = uuid_lib.UUID(user_id)
 
@@ -578,11 +746,11 @@ class OntologyTools:
         try:
             namespace = args.get("namespace")
             if not namespace:
-                # Try to find by concept name alone
+                # Try to find by concept name alone (case-insensitive)
                 result = await db.execute(
                     select(Concept).where(
                         and_(
-                            Concept.name == args["concept"],
+                            func.lower(Concept.name) == func.lower(args["concept"]),
                             Concept.is_self_managed == True,
                             Concept.group_id.in_(user_groups) if user_groups else False
                         )

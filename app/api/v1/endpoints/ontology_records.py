@@ -1,6 +1,6 @@
 """Ontology data endpoints for CRUD operations on self-managed concepts."""
 from fastapi import APIRouter, Depends, HTTPException, Request, Query
-from sqlalchemy import select, and_, text
+from sqlalchemy import select, and_, text, func
 from sqlalchemy.ext.asyncio import AsyncSession
 from typing import List, Dict, Any, Optional
 import uuid as uuid_lib
@@ -12,6 +12,9 @@ from app.core.auth import get_current_user_with_permissions, set_permission_used
 from app.core.permissions import check_permission
 from app.models.ontology import Concept, Property, DataType
 from app.models.user import GroupMember
+from app.services.ontology.ontology_utils import (
+    get_user_group_ids, get_dynamic_table_name
+)
 from pydantic import BaseModel
 
 router = APIRouter(prefix="/ontology/records", tags=["ontology-records"])
@@ -27,33 +30,24 @@ class OntologyRecordUpdate(BaseModel):
     data: Dict[str, Any]
 
 
-async def get_user_group_ids(db: AsyncSession, user_id: uuid_lib.UUID) -> List[uuid_lib.UUID]:
-    """Get all group IDs that the user is a member of."""
-    result = await db.execute(
-        select(GroupMember.group_id).where(
-            and_(
-                GroupMember.user_id == user_id,
-                GroupMember.active == True
-            )
-        )
-    )
-    return [row[0] for row in result.all()]
-
-
 async def get_concept_with_permissions(
     db: AsyncSession,
     namespace: str,
     concept_name: str,
     user_groups: List[uuid_lib.UUID]
 ) -> Concept:
-    """Get a concept and verify user has access via groups."""
+    """
+    Get a self-managed concept.
+
+    Note: Access control is handled by permission checks before calling this function.
+    This function only verifies the concept exists and is self-managed.
+    """
     result = await db.execute(
         select(Concept).where(
             and_(
                 Concept.namespace == namespace,
-                Concept.name == concept_name,
-                Concept.is_self_managed == True,
-                Concept.group_id.in_(user_groups) if user_groups else False
+                func.lower(Concept.name) == func.lower(concept_name),
+                Concept.is_self_managed == True
             )
         )
     )
@@ -62,18 +56,10 @@ async def get_concept_with_permissions(
     if not concept:
         raise HTTPException(
             status_code=404,
-            detail=f"Self-managed concept '{namespace}.{concept_name}' not found or not accessible"
+            detail=f"Self-managed concept '{namespace}.{concept_name}' not found"
         )
 
     return concept
-
-
-def get_dynamic_table_name(concept: Concept) -> str:
-    """Get the dynamic table name for a concept."""
-    # Sanitize namespace and name for table naming
-    safe_namespace = concept.namespace.lower().replace('-', '_').replace('.', '_')
-    safe_name = concept.name.lower().replace('-', '_').replace('.', '_')
-    return f"ontology_{safe_namespace}_{safe_name}"
 
 
 def validate_data_against_properties(
@@ -101,6 +87,10 @@ def validate_data_against_properties(
     # Check required properties for create operations
     if is_create:
         for prop in properties:
+            # Skip system properties - they are auto-generated
+            if prop.is_system:
+                continue
+
             if prop.is_required and prop.name not in data:
                 if prop.default_value is not None:
                     data[prop.name] = prop.default_value
@@ -112,6 +102,10 @@ def validate_data_against_properties(
 
     # Validate and cast each provided property
     for key, value in data.items():
+        # Skip reserved fields (id, created_at, updated_at are auto-generated)
+        if key.lower() in ['id', 'created_at', 'updated_at']:
+            continue
+
         if key not in property_map:
             raise HTTPException(
                 status_code=400,
@@ -213,6 +207,12 @@ async def create_record(
 
     # Get table name
     table_name = get_dynamic_table_name(concept)
+
+    # Ensure table exists (create if missing)
+    from app.services.ontology.schema_manager import SchemaManager
+    schema_manager = SchemaManager(db)
+    if not await schema_manager.table_exists(table_name):
+        await schema_manager.create_table(concept, properties)
 
     # Build INSERT statement
     columns = list(validated_data.keys())

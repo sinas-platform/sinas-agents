@@ -90,6 +90,7 @@ class Property(Base):
     data_type = Column(Enum(DataType), nullable=False)
     is_identifier = Column(Boolean, default=False, nullable=False)  # Primary key equivalent
     is_required = Column(Boolean, default=False, nullable=False)
+    is_system = Column(Boolean, default=False, nullable=False)  # Auto-generated system property (id, created_at, updated_at)
     default_value = Column(Text)  # Stored as string, cast to appropriate type
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)

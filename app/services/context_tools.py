@@ -14,24 +14,58 @@ class ContextTools:
     """Provides LLM tools for interacting with context store."""
 
     @staticmethod
-    def get_tool_definitions() -> List[Dict[str, Any]]:
+    async def get_tool_definitions(
+        db: Optional[AsyncSession] = None,
+        user_id: Optional[str] = None,
+        assistant_context_namespaces: Optional[List[str]] = None
+    ) -> List[Dict[str, Any]]:
         """
         Get OpenAI-compatible tool definitions for context operations.
+
+        Args:
+            db: Optional database session for enriching tool descriptions
+            user_id: Optional user ID for personalizing tool descriptions
 
         Returns:
             List of tool definitions
         """
+        # Get available context keys if db and user_id provided
+        available_keys_info = ""
+        if db and user_id:
+            available_keys_info = await ContextTools._get_available_keys_description(db, user_id)
+
+        # Add namespace restrictions info
+        namespace_info = ""
+        if assistant_context_namespaces is not None:
+            if len(assistant_context_namespaces) == 0:
+                namespace_info = "\n\nNO CONTEXT ACCESS: This assistant cannot read or write context."
+            else:
+                namespaces_list = ", ".join([f"'{ns}'" for ns in assistant_context_namespaces])
+                namespace_info = f"\n\nAllowed namespaces: {namespaces_list}. You can only save/update context in these namespaces."
+
+        save_description = (
+            "Save information to context store for future recall. Use this to remember "
+            "user preferences, facts learned during conversation, important decisions, "
+            "or any information that should persist across conversations. "
+            "Examples: user's timezone, preferred communication style, project details, etc."
+        )
+        if namespace_info:
+            save_description += namespace_info
+
+        retrieve_description = (
+            "Retrieve saved context by namespace and/or key. Use this to recall "
+            "previously saved information, preferences, or facts about the user or project."
+        )
+
+        if available_keys_info:
+            retrieve_description += f"\n\n{available_keys_info}"
+
         return [
             {
                 "type": "function",
                 "function": {
                     "name": "save_context",
-                    "description": (
-                        "Save information to context store for future recall. Use this to remember "
-                        "user preferences, facts learned during conversation, important decisions, "
-                        "or any information that should persist across conversations. "
-                        "Examples: user's timezone, preferred communication style, project details, etc."
-                    ),
+                    "description": save_description,
                     "parameters": {
                         "type": "object",
                         "properties": {
@@ -76,10 +110,7 @@ class ContextTools:
                 "type": "function",
                 "function": {
                     "name": "retrieve_context",
-                    "description": (
-                        "Retrieve saved context by namespace and/or key. Use this to recall "
-                        "previously saved information, preferences, or facts about the user or project."
-                    ),
+                    "description": retrieve_description,
                     "parameters": {
                         "type": "object",
                         "properties": {
@@ -169,6 +200,77 @@ class ContextTools:
         ]
 
     @staticmethod
+    async def _get_available_keys_description(
+        db: AsyncSession,
+        user_id: str
+    ) -> str:
+        """
+        Get a summary of available context keys for this user.
+
+        Args:
+            db: Database session
+            user_id: User ID
+
+        Returns:
+            Formatted string describing available context keys
+        """
+        user_uuid = uuid_lib.UUID(user_id)
+
+        # Get user's groups
+        result = await db.execute(
+            select(GroupMember.group_id).where(
+                and_(
+                    GroupMember.user_id == user_uuid,
+                    GroupMember.active == True
+                )
+            )
+        )
+        user_groups = [row[0] for row in result.all()]
+
+        # Query all available contexts
+        query = select(
+            ContextStore.namespace,
+            ContextStore.key,
+            ContextStore.description
+        ).where(
+            and_(
+                or_(
+                    ContextStore.expires_at == None,
+                    ContextStore.expires_at > datetime.utcnow()
+                ),
+                or_(
+                    ContextStore.user_id == user_uuid,
+                    and_(
+                        ContextStore.visibility == "group",
+                        ContextStore.group_id.in_(user_groups) if user_groups else False
+                    )
+                )
+            )
+        ).order_by(ContextStore.namespace, ContextStore.key)
+
+        result = await db.execute(query)
+        contexts = result.all()
+
+        if not contexts:
+            return ""
+
+        # Group by namespace
+        by_namespace: Dict[str, List[tuple]] = {}
+        for namespace, key, description in contexts:
+            if namespace not in by_namespace:
+                by_namespace[namespace] = []
+            by_namespace[namespace].append((key, description))
+
+        # Format as readable list
+        lines = ["Currently available context:"]
+        for namespace in sorted(by_namespace.keys()):
+            keys = by_namespace[namespace]
+            key_list = ", ".join([f"'{key}'" for key, _ in keys])
+            lines.append(f"  • {namespace}: {key_list}")
+
+        return "\n".join(lines)
+
+    @staticmethod
     async def execute_tool(
         db: AsyncSession,
         tool_name: str,
@@ -188,14 +290,34 @@ class ContextTools:
             user_id: User ID
             chat_id: Optional chat ID
             group_id: Optional group ID
-            assistant_id: Optional assistant ID
+            assistant_id: Optional assistant ID for namespace validation
 
         Returns:
             Tool execution result
         """
+        # Get assistant's allowed context namespaces for validation
+        allowed_namespaces = None
+        if assistant_id:
+            from app.models.assistant import Assistant
+            result = await db.execute(
+                select(Assistant).where(Assistant.id == uuid_lib.UUID(assistant_id))
+            )
+            assistant = result.scalar_one_or_none()
+            if assistant:
+                allowed_namespaces = assistant.context_namespaces
+
+        # Check namespace access for write operations
+        if tool_name in ["save_context", "update_context"] and allowed_namespaces is not None:
+            requested_namespace = arguments.get("namespace")
+            if not requested_namespace or requested_namespace not in allowed_namespaces:
+                return {
+                    "error": f"Assistant not authorized to write to namespace '{requested_namespace}'",
+                    "allowed_namespaces": allowed_namespaces if allowed_namespaces else []
+                }
+
         if tool_name == "save_context":
             return await ContextTools._save_context(
-                db, user_id, arguments, group_id, assistant_id
+                db, user_id, arguments, group_id
             )
         elif tool_name == "retrieve_context":
             return await ContextTools._retrieve_context(
@@ -217,8 +339,7 @@ class ContextTools:
         db: AsyncSession,
         user_id: str,
         args: Dict[str, Any],
-        group_id: Optional[str],
-        assistant_id: Optional[str]
+        group_id: Optional[str]
     ) -> Dict[str, Any]:
         """Save context to store."""
         user_uuid = uuid_lib.UUID(user_id)
@@ -267,7 +388,6 @@ class ContextTools:
         context = ContextStore(
             user_id=user_uuid,
             group_id=group_uuid,
-            assistant_id=uuid_lib.UUID(assistant_id) if assistant_id else None,
             namespace=args["namespace"],
             key=args["key"],
             value=args["value"],
@@ -510,15 +630,7 @@ class ContextTools:
             )
         )
 
-        # Filter by assistant if provided
-        if assistant_id:
-            assistant_uuid = uuid_lib.UUID(assistant_id)
-            query = query.where(
-                or_(
-                    ContextStore.assistant_id == assistant_uuid,
-                    ContextStore.assistant_id == None
-                )
-            )
+        # Note: assistant_id filtering removed - context is user/group scoped, not assistant scoped
 
         # Filter by namespaces if provided
         if namespaces:

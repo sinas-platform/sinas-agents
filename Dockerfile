@@ -27,6 +27,9 @@ RUN poetry config virtualenvs.create false && poetry install --only main --no-in
 # Copy the rest of the application
 COPY . /app/
 
+# Copy executor script for user containers
+COPY container_executor.py /app/executor.py
+
 # Create directory for logs
 RUN mkdir -p /app/logs
 

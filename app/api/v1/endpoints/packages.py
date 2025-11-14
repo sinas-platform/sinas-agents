@@ -26,6 +26,14 @@ async def install_package(
     if not settings.allow_package_installation:
         raise HTTPException(status_code=403, detail="Package installation is disabled")
 
+    # Check whitelist if configured
+    if settings.allowed_packages:
+        whitelist = {pkg.strip() for pkg in settings.allowed_packages.split(',')}
+        if package_data.package_name not in whitelist:
+            raise HTTPException(
+                status_code=403,
+                detail=f"Package '{package_data.package_name}' not in whitelist. Allowed packages: {', '.join(sorted(whitelist))}"
+            )
 
     # Check if already installed
     result = await db.execute(

@@ -19,9 +19,6 @@ class ContextStore(Base):
     group_id: Mapped[Optional[uuid_lib.UUID]] = mapped_column(
         ForeignKey("groups.id", ondelete="CASCADE"), index=True
     )
-    assistant_id: Mapped[Optional[uuid_lib.UUID]] = mapped_column(
-        ForeignKey("assistants.id", ondelete="CASCADE"), index=True
-    )
 
     # Core key-value structure
     namespace: Mapped[str] = mapped_column(String(100), nullable=False, index=True)
@@ -48,7 +45,6 @@ class ContextStore(Base):
     # Relationships
     user: Mapped["User"] = relationship("User", back_populates="context_stores")
     group: Mapped[Optional["Group"]] = relationship("Group", back_populates="context_stores")
-    assistant: Mapped[Optional["Assistant"]] = relationship("Assistant", back_populates="context_stores")
 
     __table_args__ = (
         # Unique constraint: one key per user/namespace combination

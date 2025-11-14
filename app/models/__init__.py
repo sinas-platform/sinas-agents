@@ -7,6 +7,7 @@ from .package import InstalledPackage
 from .user import User, Group, GroupMember, GroupPermission, OTPSession, APIKey
 from .chat import Chat, Message
 from .assistant import Assistant
+from .llm_provider import LLMProvider
 from .mcp import MCPServer
 from .context_store import ContextStore
 from .ontology import (
@@ -49,6 +50,7 @@ __all__ = [
     "Chat",
     "Message",
     "Assistant",
+    "LLMProvider",
     "MCPServer",
     "ContextStore",
     "DataSource",
