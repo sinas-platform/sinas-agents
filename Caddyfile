@@ -8,7 +8,7 @@
 {$DOMAIN:localhost} {
     # Automatic HTTPS with Let's Encrypt
     # Remove this block for local development without SSL
-    {$ACME_EMAIL:admin@example.com}
+    {$SUPERADMIN_EMAIL:admin@example.com}
 
     # Proxy to FastAPI app
     reverse_proxy app:8000 {
