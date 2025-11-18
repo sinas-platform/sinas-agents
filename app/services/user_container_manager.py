@@ -106,14 +106,21 @@ class UserContainerManager:
         # Get container image from settings
         image = getattr(settings, 'function_container_image', 'python:3.11-slim')
 
-        # Create container
+        # Create container with resource limits
         container = self.client.containers.run(
             image,
             command='python3 -u /app/executor.py',
             detach=True,
             name=f'sinas-user-{user_id}',
             mem_limit=f"{settings.max_function_memory}m",
+            nano_cpus=int(settings.max_function_cpu * 1_000_000_000),  # Convert cores to nanocpus
+            storage_opt={'size': settings.max_function_storage},
             network_mode='bridge',
+            cap_drop=['ALL'],  # Drop all capabilities for security
+            cap_add=['CHOWN', 'SETUID', 'SETGID'],  # Only essential capabilities
+            security_opt=['no-new-privileges:true'],  # Prevent privilege escalation
+            read_only=False,  # Allow writes to /tmp (needed for Python)
+            tmpfs={'/tmp': 'size=100m,mode=1777'},  # Temp storage
             environment={
                 'PYTHONUNBUFFERED': '1',
                 'USER_ID': user_id,

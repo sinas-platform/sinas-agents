@@ -108,14 +108,11 @@ class FunctionExecutor:
 
     @property
     def container_manager(self):
-        """Lazy load container manager only if docker mode is enabled."""
-        from app.core.config import settings
-        if settings.function_execution_mode == 'docker':
-            if self._container_manager is None:
-                from app.services.user_container_manager import container_manager
-                self._container_manager = container_manager
-            return self._container_manager
-        return None
+        """Lazy load container manager (always enabled for security)."""
+        if self._container_manager is None:
+            from app.services.user_container_manager import container_manager
+            self._container_manager = container_manager
+        return self._container_manager
 
     async def validate_schema(self, data: Any, schema: Dict[str, Any]) -> None:
         """Validate data against JSON schema."""
@@ -255,48 +252,23 @@ class FunctionExecutor:
                 if not resume_data and function.input_schema:
                     await self.validate_schema(input_data, function.input_schema)
 
-                # Check execution mode
-                from app.core.config import settings
+                # Always execute in Docker container for security
                 start_time = time.time()
 
-                if settings.function_execution_mode == 'docker' and self.container_manager:
-                    # Execute in user's Docker container
-                    exec_result = await self.container_manager.execute_function(
-                        user_id=user_id,
-                        function_name=function_name,
-                        input_data=input_data,
-                        execution_id=execution_id,
-                        db=db,
-                    )
+                # Execute in user's Docker container
+                exec_result = await self.container_manager.execute_function(
+                    user_id=user_id,
+                    function_name=function_name,
+                    input_data=input_data,
+                    execution_id=execution_id,
+                    db=db,
+                )
 
-                    if exec_result.get('status') == 'failed':
-                        raise FunctionExecutionError(exec_result.get('error', 'Unknown error'))
+                if exec_result.get('status') == 'failed':
+                    raise FunctionExecutionError(exec_result.get('error', 'Unknown error'))
 
-                    result = exec_result.get('result')
-                    duration_ms = exec_result.get('duration_ms', 0)
-
-                else:
-                    # Execute in-process (current behavior)
-                    # Build execution namespace
-                    namespace = await self.build_execution_namespace(db, execution_id, user_id)
-
-                    if function_name in namespace:
-                        func = namespace[function_name]
-
-                        # Check if function is a generator (stateful)
-                        if inspect.isgeneratorfunction(func):
-                            return await self._execute_generator(
-                                execution, func, input_data, resume_data, db
-                            )
-                        elif asyncio.iscoroutinefunction(func):
-                            result = await func(input_data)
-                        else:
-                            result = func(input_data)
-                    else:
-                        raise FunctionExecutionError(f"Function '{function_name}' not found in namespace")
-
-                    end_time = time.time()
-                    duration_ms = int((end_time - start_time) * 1000)
+                result = exec_result.get('result')
+                duration_ms = exec_result.get('duration_ms', 0)
 
                 # Validate output
                 if function.output_schema:

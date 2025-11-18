@@ -89,6 +89,15 @@ services:
       - /var/run/docker.sock:/var/run/docker.sock
     env_file:
       - .env
+    # Resource limits for the SINAS application container
+    deploy:
+      resources:
+        limits:
+          cpus: '${APP_CPU_LIMIT:-2.0}'      # CPU cores
+          memory: ${APP_MEMORY_LIMIT:-2G}     # RAM
+        reservations:
+          cpus: '${APP_CPU_RESERVATION:-0.5}'
+          memory: ${APP_MEMORY_RESERVATION:-512M}
     environment:
       # Database configuration
       # Build from components if DATABASE_URL not explicitly set
@@ -151,8 +160,31 @@ services:
         condition: service_healthy
     command: sh -c "alembic upgrade head && uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload"
 
+  # Caddy - HTTPS reverse proxy
+  caddy:
+    image: caddy:2-alpine
+    container_name: sinas-caddy
+    restart: unless-stopped
+    ports:
+      - "80:80"      # HTTP (redirects to HTTPS)
+      - "443:443"    # HTTPS
+      - "443:443/udp" # HTTP/3
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+      - caddy_logs:/var/log/caddy
+    environment:
+      DOMAIN: ${DOMAIN:-localhost}
+      ACME_EMAIL: ${ACME_EMAIL:-}
+    depends_on:
+      - app
+
 volumes:
   redis_data:
   postgres_data:
   clickhouse_data:
   mongodb_data:
+  caddy_data:
+  caddy_config:
+  caddy_logs:

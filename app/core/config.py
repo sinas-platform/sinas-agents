@@ -58,10 +58,13 @@ class Settings(BaseSettings):
     smtp_server_host: str = "0.0.0.0"
     smtp_server_port: int = 2525  # Port for incoming email SMTP server
 
-    # Function execution
-    function_timeout: int = 300  # 5 minutes
-    max_function_memory: int = 512  # MB
-    function_execution_mode: str = "inline"  # "inline" or "docker" (docker requires Docker socket access)
+    # Function execution (always uses Docker for isolation)
+    function_timeout: int = 300  # 5 minutes (max execution time)
+    max_function_memory: int = 512  # MB (Docker memory limit)
+    max_function_cpu: float = 1.0  # CPU cores (1.0 = 1 full core, 0.5 = half core)
+    max_function_storage: str = "1g"  # Disk storage limit (e.g., "500m", "1g")
+    function_container_image: str = "python:3.11-slim"  # Base image for execution
+    function_container_idle_timeout: int = 3600  # Seconds before idle container cleanup (1 hour)
 
     # Package management
     allow_package_installation: bool = True
