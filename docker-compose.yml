@@ -176,7 +176,7 @@ services:
       - caddy_logs:/var/log/caddy
     environment:
       DOMAIN: ${DOMAIN:-localhost}
-      ACME_EMAIL: ${ACME_EMAIL:-}
+      SUPERADMIN_EMAIL: ${SUPERADMIN_EMAIL:-admin@example.com}
     depends_on:
       - app
 
