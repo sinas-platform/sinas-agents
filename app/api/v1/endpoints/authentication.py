@@ -14,6 +14,7 @@ from app.core.auth import (
     create_access_token,
     create_api_key,
     get_current_user,
+    get_current_user_with_permissions,
     set_permission_used,
 )
 from app.core.config import settings
@@ -27,6 +28,7 @@ from app.schemas.auth import (
     APIKeyCreate,
     APIKeyResponse,
     APIKeyCreatedResponse,
+    CreateUserRequest,
 )
 
 router = APIRouter()
@@ -203,3 +205,63 @@ async def revoke_api_key(
     await db.commit()
 
     return None
+
+
+@router.post("/create-user", response_model=UserResponse, status_code=status.HTTP_201_CREATED)
+async def create_user(
+    request: Request,
+    user_request: CreateUserRequest,
+    current_user_data: tuple = Depends(get_current_user_with_permissions),
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    Create a new user by email address.
+
+    Only admins can create users. New users are assigned to the GuestUsers group by default.
+    Requires permission: sinas.users.create:all
+    """
+    user_id, permissions = current_user_data
+
+    # Check admin permission
+    if not permissions.get("sinas.users.create:all"):
+        set_permission_used(request, "sinas.users.create:all", has_perm=False)
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Not authorized to create users"
+        )
+
+    set_permission_used(request, "sinas.users.create:all")
+
+    # Create user (assign to GuestUsers group, not Users group)
+    user = await get_or_create_user(db, user_request.email, assign_to_users_group=False)
+
+    # Assign to GuestUsers group
+    result = await db.execute(
+        select(User).join(User.group_memberships).where(User.id == user.id)
+    )
+
+    # Check if already has groups
+    from app.models import Group, GroupMember
+    memberships_result = await db.execute(
+        select(GroupMember).where(GroupMember.user_id == user.id)
+    )
+    existing_memberships = memberships_result.scalars().all()
+
+    # Only add to GuestUsers if no groups assigned yet
+    if not existing_memberships:
+        guest_group_result = await db.execute(
+            select(Group).where(Group.name == "GuestUsers")
+        )
+        guest_group = guest_group_result.scalar_one_or_none()
+
+        if guest_group:
+            membership = GroupMember(
+                group_id=guest_group.id,
+                user_id=user.id,
+                active=True
+            )
+            db.add(membership)
+            await db.commit()
+            await db.refresh(user)
+
+    return UserResponse.model_validate(user)

@@ -57,3 +57,7 @@ class APIKeyResponse(BaseModel):
 
 class APIKeyCreatedResponse(APIKeyResponse):
     api_key: str  # Only returned once upon creation
+
+
+class CreateUserRequest(BaseModel):
+    email: EmailStr
