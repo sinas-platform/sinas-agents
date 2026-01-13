@@ -89,7 +89,6 @@ async def create_state(
     context = State(
         user_id=user_uuid,
         group_id=state_data.group_id,
-        assistant_id=state_data.assistant_id,
         namespace=state_data.namespace,
         key=state_data.key,
         value=state_data.value,
@@ -112,7 +111,6 @@ async def list_contexts(
     request: Request,
     namespace: Optional[str] = None,
     visibility: Optional[str] = Query(None, pattern=r'^(private|group|public)$'),
-    assistant_id: Optional[uuid.UUID] = None,
     tags: Optional[str] = Query(None, description="Comma-separated list of tags"),
     search: Optional[str] = Query(None, description="Search in keys and descriptions"),
     skip: int = Query(0, ge=0),
@@ -172,9 +170,6 @@ async def list_contexts(
 
     if visibility:
         query = query.where(State.visibility == visibility)
-
-    if assistant_id:
-        query = query.where(State.assistant_id == assistant_id)
 
     if tags:
         tag_list = [tag.strip() for tag in tags.split(',')]

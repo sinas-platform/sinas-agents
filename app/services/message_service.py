@@ -119,7 +119,7 @@ class MessageService:
         Prepare message context (shared logic for streaming and non-streaming).
 
         Returns dict with: chat, user_message, messages, tools, llm_provider,
-        provider_name, final_model, final_temperature
+        provider_name, final_model, final_temperature, final_max_tokens, response_format
         """
         # Get chat
         result = await self.db.execute(
@@ -164,6 +164,7 @@ class MessageService:
             final_model = agent.llm_provider.default_model
 
         final_temperature = temperature if temperature != 0.7 else (agent.temperature if agent else 0.7)
+        final_max_tokens = agent.max_tokens if agent else None
 
         # Get provider type for content conversion (needed before building conversation history)
         provider_type = None
@@ -266,6 +267,7 @@ class MessageService:
             "provider_name": provider_name,
             "final_model": final_model,
             "final_temperature": final_temperature,
+            "final_max_tokens": final_max_tokens,
             "response_format": response_format
         }
 
@@ -312,7 +314,7 @@ class MessageService:
             model=prep["final_model"],
             tools=prep["tools"] if prep["tools"] else None,
             temperature=prep["final_temperature"],
-            max_tokens=max_tokens,
+            max_tokens=prep["final_max_tokens"],
             **llm_kwargs
         )
         end_time = datetime.now(timezone.utc)
@@ -340,7 +342,7 @@ class MessageService:
                 provider=prep["provider_name"],
                 model=prep["final_model"],
                 temperature=prep["final_temperature"],
-                max_tokens=max_tokens,
+                max_tokens=prep["final_max_tokens"],
                 tools=prep["tools"]
             )
 
@@ -396,7 +398,7 @@ class MessageService:
             final_model=prep["final_model"],
             tools=prep["tools"],
             final_temperature=prep["final_temperature"],
-            max_tokens=None,
+            max_tokens=prep["final_max_tokens"],
             chat_id=chat_id,
             user_id=user_id,
             user_token=user_token,
@@ -560,7 +562,8 @@ class MessageService:
                 )
                 agent = result.scalar_one_or_none()
                 if agent:
-                    final_namespaces = agent.state_namespaces
+                    # Combine readonly and readwrite namespaces for context injection
+                    final_namespaces = (agent.state_namespaces_readonly or []) + (agent.state_namespaces_readwrite or [])
 
             # Context access is opt-in: None or [] means no access
             if final_namespaces is None or len(final_namespaces) == 0:
@@ -942,7 +945,7 @@ class MessageService:
                         user_id=user_id,
                         chat_id=str(chat_id),
                         group_id=str(chat.group_id) if chat and chat.group_id else None,
-                        assistant_id=str(chat.assistant_id) if chat and chat.assistant_id else None
+                        agent_id=str(chat.agent_id) if chat and chat.agent_id else None
                     )
                 # Ontology tools removed - extracted to sinas-ontology project
                 elif tool_name == "continue_execution":

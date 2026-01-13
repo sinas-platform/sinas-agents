@@ -325,7 +325,8 @@ class StateTools:
             )
             agent = result.scalar_one_or_none()
             if agent:
-                allowed_namespaces = agent.state_namespaces
+                # For write operations, only readwrite namespaces are allowed
+                allowed_namespaces = agent.state_namespaces_readwrite
 
         # Check namespace access for write operations
         if tool_name in ["save_context", "update_context"] and allowed_namespaces is not None:

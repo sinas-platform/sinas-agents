@@ -68,7 +68,8 @@ async def create_agent(
         enabled_agents=agent_data.enabled_agents or [],
         function_parameters=agent_data.function_parameters or {},
         mcp_tool_parameters=agent_data.mcp_tool_parameters or {},
-        state_namespaces=agent_data.state_namespaces,
+        state_namespaces_readonly=agent_data.state_namespaces_readonly or [],
+        state_namespaces_readwrite=agent_data.state_namespaces_readwrite or [],
         is_active=True
     )
 
@@ -198,8 +199,10 @@ async def update_agent(
         agent.function_parameters = agent_data.function_parameters
     if agent_data.mcp_tool_parameters is not None:
         agent.mcp_tool_parameters = agent_data.mcp_tool_parameters
-    if agent_data.state_namespaces is not None:
-        agent.state_namespaces = agent_data.state_namespaces
+    if agent_data.state_namespaces_readonly is not None:
+        agent.state_namespaces_readonly = agent_data.state_namespaces_readonly
+    if agent_data.state_namespaces_readwrite is not None:
+        agent.state_namespaces_readwrite = agent_data.state_namespaces_readwrite
     if agent_data.is_active is not None:
         agent.is_active = agent_data.is_active
 
