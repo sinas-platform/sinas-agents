@@ -116,12 +116,6 @@ done
 # SMTP Domain (for email from address)
 SMTP_DOMAIN=$(echo "$DOMAIN" | sed 's/api\.//')
 
-# Optional: LLM Provider API Keys
-echo ""
-echo -e "${YELLOW}LLM Provider API Keys (optional, can configure later):${NC}"
-read -p "OpenAI API Key (press Enter to skip): " OPENAI_API_KEY
-read -p "Anthropic API Key (press Enter to skip): " ANTHROPIC_API_KEY
-
 # Create .env file
 echo ""
 echo -e "${YELLOW}Creating .env file...${NC}"
@@ -152,12 +146,8 @@ SMTP_DOMAIN=$SMTP_DOMAIN
 SUPERADMIN_EMAIL=$SUPERADMIN_EMAIL
 
 # Domain & SSL
-CADDY_DOMAIN=$DOMAIN
+DOMAIN=$DOMAIN
 ACME_EMAIL=$ACME_EMAIL
-
-# LLM Providers (optional - can configure via API later)
-OPENAI_API_KEY=${OPENAI_API_KEY:-}
-ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
 
 # Function Execution
 FUNCTION_TIMEOUT=300
