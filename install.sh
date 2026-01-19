@@ -130,8 +130,8 @@ while [ -z "$SMTP_HOST" ] || [ -z "$SMTP_USER" ] || [ -z "$SMTP_PASSWORD" ]; do
     echo ""
 done
 
-# SMTP Domain (for email from address)
-SMTP_DOMAIN=$(echo "$DOMAIN" | sed 's/api\.//')
+# SMTP Domain (for email from address, e.g., login@example.com)
+read -p "SMTP Domain (for 'from' address, e.g., example.com): " SMTP_DOMAIN
 
 # Create .env file
 echo ""
