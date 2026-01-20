@@ -519,19 +519,25 @@ async def validate_api_key(db: AsyncSession, key: str) -> Optional[Tuple[User, D
 
 # Authentication Dependencies
 
+# HTTPBearer security scheme for Swagger UI
+http_bearer = HTTPBearer(auto_error=False)
+
+
 async def verify_jwt_or_api_key(
-    authorization: Optional[str] = Header(None),
+    credentials: Optional[HTTPAuthorizationCredentials] = Depends(http_bearer),
+    x_api_key: Optional[str] = Header(None, alias="X-API-Key"),
     db: AsyncSession = Depends(get_db)
 ) -> Tuple[str, str, Dict[str, bool]]:
     """
-    Verify either JWT access token or API key from Authorization header.
+    Verify either JWT access token or API key from Authorization or X-API-Key header.
 
     BEST PRACTICE: Permissions are loaded from DB, not from JWT payload.
     This ensures immediate permission updates without waiting for token expiry.
 
     Supports:
-    - Bearer <jwt_access_token> (15 min)
-    - Bearer <api_key> (long-lived)
+    - Bearer <jwt_access_token> (15 min) in Authorization header
+    - Bearer <api_key> (long-lived) in Authorization header
+    - <api_key> in X-API-Key header
 
     Returns:
         Tuple of (user_id, email, permissions)
@@ -539,19 +545,16 @@ async def verify_jwt_or_api_key(
     Raises:
         HTTPException 401 if authentication fails
     """
-    if not authorization:
+    # Try X-API-Key header first
+    if x_api_key:
+        token = x_api_key
+    elif credentials:
+        token = credentials.credentials  # HTTPBearer already strips "Bearer " prefix
+    else:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Missing authorization header"
         )
-
-    if not authorization.startswith("Bearer "):
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid authorization header format"
-        )
-
-    token = authorization[7:]  # Remove "Bearer " prefix
 
     # Try JWT first
     try:
@@ -661,7 +664,7 @@ async def get_current_user(
 
 async def get_current_user_optional(
     request: Request,
-    authorization: Optional[str] = Header(None)
+    credentials: Optional[HTTPAuthorizationCredentials] = Depends(http_bearer)
 ) -> Optional[str]:
     """
     Get current authenticated user ID if auth header provided, otherwise return None.
@@ -670,13 +673,13 @@ async def get_current_user_optional(
     Returns:
         user_id or None
     """
-    if not authorization:
+    if not credentials:
         return None
 
     try:
         from app.core.database import AsyncSessionLocal
         async with AsyncSessionLocal() as db:
-            user_id, email, _ = await verify_jwt_or_api_key(authorization, db)
+            user_id, email, _ = await verify_jwt_or_api_key(credentials, db)
             # Store user info in request state for logging
             request.state.user_id = user_id
             request.state.user_email = email
