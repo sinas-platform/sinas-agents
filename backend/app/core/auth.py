@@ -217,8 +217,10 @@ async def get_user_permissions(db: AsyncSession, user_id: str) -> Dict[str, bool
         group_permissions = result.scalars().all()
 
         for perm in group_permissions:
-            # Later groups can override earlier ones
-            all_permissions[perm.permission_key] = perm.permission_value
+            # OR logic: if ANY group grants permission (true), user has it
+            # Don't let a false permission override an existing true permission
+            if perm.permission_value or perm.permission_key not in all_permissions:
+                all_permissions[perm.permission_key] = perm.permission_value
 
     # Return permissions as-is (with wildcards) - they will be matched at runtime
     return all_permissions
