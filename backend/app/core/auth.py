@@ -17,7 +17,6 @@ from app.core.database import get_db
 from app.core.email import send_otp_email_async
 from app.core.permissions import (
     check_permission,
-    expand_permission_dict,
     validate_permission_subset,
     DEFAULT_GROUP_PERMISSIONS,
 )
@@ -126,7 +125,10 @@ async def get_or_create_user(
     assign_to_users_group: bool = True
 ) -> User:
     """
-    Get existing user or create new one.
+    Get existing user or create new one (for authentication flows).
+
+    Used during OTP verification and external auth to auto-provision users.
+    Respects AUTO_PROVISION_USERS setting.
 
     Args:
         db: Database session
@@ -150,7 +152,7 @@ async def get_or_create_user(
     if user:
         return user
 
-    # Check if auto-provisioning is enabled
+    # Check if auto-provisioning is enabled for authentication flows
     if not settings.auto_provision_users:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,

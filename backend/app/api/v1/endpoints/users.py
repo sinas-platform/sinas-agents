@@ -6,7 +6,7 @@ from typing import List
 import uuid
 
 from app.core.database import get_db
-from app.core.auth import get_current_user_with_permissions, set_permission_used, get_or_create_user
+from app.core.auth import get_current_user_with_permissions, set_permission_used
 from app.core.permissions import check_permission
 from app.models.user import User, Group, GroupMember
 from app.schemas import UserResponse, UserWithGroupsResponse, UserUpdate
@@ -65,8 +65,25 @@ async def create_user(
 
     set_permission_used(request, "sinas.users.post:all")
 
-    # Create user (assign to GuestUsers group, not Users group)
-    user = await get_or_create_user(db, user_request.email, assign_to_users_group=False)
+    # Check if user already exists
+    from app.core.auth import normalize_email
+    normalized_email = normalize_email(user_request.email)
+
+    result = await db.execute(
+        select(User).where(User.email == normalized_email)
+    )
+    user = result.scalar_one_or_none()
+
+    if user:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=f"User with email '{user_request.email}' already exists"
+        )
+
+    # Create new user
+    user = User(email=normalized_email)
+    db.add(user)
+    await db.flush()  # Get user ID before adding to group
 
     # Check if already has groups
     memberships_result = await db.execute(
