@@ -12,6 +12,7 @@ from .endpoints import (
     schedules,
     request_logs,
     containers,
+    workers,
     config,
     api_keys,
 )
@@ -35,6 +36,7 @@ router.include_router(schedules.router)
 # System routes
 router.include_router(request_logs.router)
 router.include_router(containers.router)
+router.include_router(workers.router)
 
 # Configuration routes
 router.include_router(config.router, prefix="/config", tags=["config"])

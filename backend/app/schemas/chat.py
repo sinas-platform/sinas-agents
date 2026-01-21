@@ -18,6 +18,7 @@ class ChatUpdate(BaseModel):
 class ChatResponse(BaseModel):
     id: uuid.UUID
     user_id: uuid.UUID
+    user_email: str  # Creator's email address
     group_id: Optional[uuid.UUID]
     agent_id: Optional[uuid.UUID]
     agent_namespace: Optional[str]
@@ -25,6 +26,7 @@ class ChatResponse(BaseModel):
     title: str
     created_at: datetime
     updated_at: datetime
+    last_message_at: Optional[datetime] = None  # Timestamp of last message
 
     class Config:
         from_attributes = True

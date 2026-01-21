@@ -4,11 +4,36 @@
 
 Core capabilities:
 - 🤖 **AI Agents** - Multi-LLM chat with tool calling and MCP integration
-- ⚡ **Function Execution** - Container-isolated Python runtime with automatic tracking
+- ⚡ **Function Execution** - Container-isolated Python runtime with automatic tracking and authentication context
 - 🌐 **Webhooks & Scheduling** - HTTP triggers and cron-based automation
 - 💾 **State Store** - Flexible key-value storage for agent/function/workflow state
 - 🔐 **RBAC** - Group-based permissions with hierarchical scopes (:own/:group/:all)
 - 🖥️ **Management Console** - Web UI for managing agents, functions, and system configuration
+
+## Function Context
+
+All functions receive two parameters:
+1. **`input`** - Validated against the function's input_schema
+2. **`context`** - Execution context containing:
+   - `user_id` - Authenticated user's ID
+   - `user_email` - User's email address
+   - `access_token` - JWT token for making authenticated API calls
+   - `execution_id` - Current execution ID
+   - `trigger_type` - How the function was triggered (WEBHOOK, AGENT, SCHEDULE)
+   - `chat_id` - Optional chat ID if triggered from a chat
+
+**Example:**
+```python
+def my_function(input, context):
+    # Use access token to call other SINAS APIs
+    import requests
+    headers = {"Authorization": f"Bearer {context['access_token']}"}
+    response = requests.get(
+        "http://host.docker.internal:8000/api/v1/...",
+        headers=headers
+    )
+    return response.json()
+```
 
 ---
 

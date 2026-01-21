@@ -85,7 +85,7 @@ export function Chats() {
           value={searchQuery}
           onChange={(e) => setSearchQuery(e.target.value)}
           placeholder="Search chats..."
-          className="input pl-11 w-full"
+          className="input w-full !pl-11"
         />
       </div>
 
@@ -117,10 +117,10 @@ export function Chats() {
                     Agent
                   </th>
                   <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Created
+                    Creator
                   </th>
                   <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Updated
+                    Last Message
                   </th>
                   <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
                     Actions
@@ -147,10 +147,12 @@ export function Chats() {
                         )}
                       </td>
                       <td className="px-4 py-3 text-sm text-gray-600">
-                        {new Date(chat.created_at).toLocaleDateString()}
+                        {chat.user_email}
                       </td>
                       <td className="px-4 py-3 text-sm text-gray-600">
-                        {new Date(chat.updated_at).toLocaleDateString()}
+                        {chat.last_message_at ? new Date(chat.last_message_at).toLocaleString() : (
+                          <span className="text-gray-400">No messages</span>
+                        )}
                       </td>
                       <td className="px-4 py-3 text-right">
                         <button

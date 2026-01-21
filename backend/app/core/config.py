@@ -72,6 +72,10 @@ class Settings(BaseSettings):
     allow_package_installation: bool = True
     allowed_packages: Optional[str] = None  # Comma-separated whitelist, None = all allowed
 
+    # Docker configuration
+    docker_network: str = "sinas_default"  # Docker network for containers
+    default_worker_count: int = 2  # Number of workers to start on backend startup
+
     # Encryption
     encryption_key: Optional[str] = None  # Fernet key for encrypting sensitive data
 

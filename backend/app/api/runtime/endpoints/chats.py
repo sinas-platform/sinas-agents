@@ -15,6 +15,8 @@ from app.models.agent import Agent
 from app.models.chat import Chat
 from app.models import Message
 from app.models.pending_approval import PendingToolApproval
+from app.models.user import User
+from sqlalchemy import func
 from app.services.message_service import MessageService
 from app.schemas.chat import AgentChatCreateRequest, MessageSendRequest, ChatResponse, MessageResponse, ChatUpdate, ChatWithMessages, ToolApprovalRequest, ToolApprovalResponse
 
@@ -86,7 +88,23 @@ async def create_chat_with_agent(
     await db.commit()
     await db.refresh(chat)
 
-    return ChatResponse.model_validate(chat)
+    # Get user email
+    user_result = await db.execute(select(User).where(User.id == user_id))
+    user = user_result.scalar_one()
+
+    return ChatResponse(
+        id=chat.id,
+        user_id=chat.user_id,
+        user_email=user.email,
+        group_id=chat.group_id,
+        agent_id=chat.agent_id,
+        agent_namespace=chat.agent_namespace,
+        agent_name=chat.agent_name,
+        title=chat.title,
+        created_at=chat.created_at,
+        updated_at=chat.updated_at,
+        last_message_at=None  # New chat has no messages yet
+    )
 
 
 @router.post("/chats/{chat_id}/messages", response_model=MessageResponse)
@@ -309,12 +327,48 @@ async def list_chats(
     user_id, permissions = current_user_data
     set_permission_used(request, "sinas.chats.get:own")
 
-    result = await db.execute(
-        select(Chat).where(Chat.user_id == user_id).order_by(Chat.updated_at.desc())
+    # Subquery for last message timestamp
+    last_message_subq = (
+        select(
+            Message.chat_id,
+            func.max(Message.created_at).label('last_message_at')
+        )
+        .group_by(Message.chat_id)
+        .subquery()
     )
-    chats = result.scalars().all()
 
-    return [ChatResponse.model_validate(chat) for chat in chats]
+    # Join with User and last message subquery
+    result = await db.execute(
+        select(
+            Chat,
+            User.email,
+            last_message_subq.c.last_message_at
+        )
+        .join(User, Chat.user_id == User.id)
+        .outerjoin(last_message_subq, Chat.id == last_message_subq.c.chat_id)
+        .where(Chat.user_id == user_id)
+        .order_by(Chat.updated_at.desc())
+    )
+    rows = result.all()
+
+    # Build response with user_email and last_message_at
+    chats_response = []
+    for chat, email, last_message_at in rows:
+        chats_response.append(ChatResponse(
+            id=chat.id,
+            user_id=chat.user_id,
+            user_email=email,
+            group_id=chat.group_id,
+            agent_id=chat.agent_id,
+            agent_namespace=chat.agent_namespace,
+            agent_name=chat.agent_name,
+            title=chat.title,
+            created_at=chat.created_at,
+            updated_at=chat.updated_at,
+            last_message_at=last_message_at
+        ))
+
+    return chats_response
 
 
 @router.get("/chats/{chat_id}", response_model=ChatWithMessages)
@@ -328,16 +382,21 @@ async def get_chat(
     user_id, permissions = current_user_data
     set_permission_used(request, "sinas.chats.get:own")
 
+    # Get chat with user email
     result = await db.execute(
-        select(Chat).where(Chat.id == chat_id, Chat.user_id == user_id)
+        select(Chat, User.email)
+        .join(User, Chat.user_id == User.id)
+        .where(Chat.id == chat_id, Chat.user_id == user_id)
     )
-    chat = result.scalar_one_or_none()
+    row = result.one_or_none()
 
-    if not chat:
+    if not row:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Chat not found"
         )
+
+    chat, user_email = row
 
     # Get messages
     result = await db.execute(
@@ -345,8 +404,21 @@ async def get_chat(
     )
     messages = result.scalars().all()
 
+    # Calculate last message timestamp
+    last_message_at = messages[-1].created_at if messages else None
+
     return ChatWithMessages(
-        **ChatResponse.model_validate(chat).model_dump(),
+        id=chat.id,
+        user_id=chat.user_id,
+        user_email=user_email,
+        group_id=chat.group_id,
+        agent_id=chat.agent_id,
+        agent_namespace=chat.agent_namespace,
+        agent_name=chat.agent_name,
+        title=chat.title,
+        created_at=chat.created_at,
+        updated_at=chat.updated_at,
+        last_message_at=last_message_at,
         messages=[MessageResponse.model_validate(msg) for msg in messages]
     )
 
@@ -380,7 +452,30 @@ async def update_chat(
     await db.commit()
     await db.refresh(chat)
 
-    return ChatResponse.model_validate(chat)
+    # Get user email and last message timestamp
+    user_result = await db.execute(select(User).where(User.id == chat.user_id))
+    user = user_result.scalar_one()
+
+    # Get last message timestamp
+    last_msg_result = await db.execute(
+        select(func.max(Message.created_at))
+        .where(Message.chat_id == chat_id)
+    )
+    last_message_at = last_msg_result.scalar()
+
+    return ChatResponse(
+        id=chat.id,
+        user_id=chat.user_id,
+        user_email=user.email,
+        group_id=chat.group_id,
+        agent_id=chat.agent_id,
+        agent_namespace=chat.agent_namespace,
+        agent_name=chat.agent_name,
+        title=chat.title,
+        created_at=chat.created_at,
+        updated_at=chat.updated_at,
+        last_message_at=last_message_at
+    )
 
 
 @router.delete("/chats/{chat_id}", status_code=status.HTTP_204_NO_CONTENT)

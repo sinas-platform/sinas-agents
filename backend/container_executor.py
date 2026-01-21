@@ -51,7 +51,8 @@ class ContainerExecutor:
         self,
         function_name: str,
         input_data: Dict[str, Any],
-        execution_id: str
+        execution_id: str,
+        context: Dict[str, Any] = None
     ) -> Dict[str, Any]:
         """Execute a function from the namespace."""
         try:
@@ -66,9 +67,9 @@ class ContainerExecutor:
 
             func = self.namespace[actual_name]
 
-            # Execute function
+            # Execute function with input and context
             start_time = time.time()
-            result = func(input_data)
+            result = func(input_data, context or {})
             duration_ms = int((time.time() - start_time) * 1000)
 
             return {
@@ -125,7 +126,8 @@ class ContainerExecutor:
                         result = self.execute_function(
                             full_function_name,
                             request['input_data'],
-                            request['execution_id']
+                            request['execution_id'],
+                            request.get('context', {})
                         )
 
                         # Write result
@@ -137,6 +139,80 @@ class ContainerExecutor:
                         self.load_functions(request['functions'])
                         with open('/tmp/exec_result.json', 'w') as f:
                             json.dump({'status': 'loaded'}, f)
+
+                    elif action == 'execute_inline':
+                        # Execute function with inline code (no pre-loading required)
+                        try:
+                            function_code = request['function_code']
+                            function_namespace = request.get('function_namespace', 'default')
+                            function_name = request['function_name']
+                            input_data = request['input_data']
+                            context = request.get('context', {})
+                            execution_id = request['execution_id']
+
+                            # Create temporary namespace for this execution
+                            temp_namespace = {
+                                '__builtins__': __builtins__,
+                                'json': json,
+                            }
+
+                            # Add common modules
+                            try:
+                                import datetime
+                                import uuid
+                                temp_namespace['datetime'] = datetime
+                                temp_namespace['uuid'] = uuid
+                            except ImportError:
+                                pass
+
+                            # Compile and execute function code
+                            compiled_code = compile(function_code, f'<function:{function_namespace}/{function_name}>', 'exec')
+                            exec(compiled_code, temp_namespace)
+
+                            # Find the function (usually same name as function_name)
+                            if function_name in temp_namespace:
+                                func = temp_namespace[function_name]
+                            else:
+                                # Try to find any callable that's not a built-in
+                                func = None
+                                for name, obj in temp_namespace.items():
+                                    if callable(obj) and not name.startswith('_'):
+                                        func = obj
+                                        break
+
+                                if not func:
+                                    result = {
+                                        'error': f"No callable function found in code for {function_namespace}/{function_name}",
+                                        'execution_id': execution_id,
+                                        'status': 'failed',
+                                    }
+                                    with open('/tmp/exec_result.json', 'w') as f:
+                                        json.dump(result, f)
+                                    continue
+
+                            # Execute function
+                            start_time = time.time()
+                            func_result = func(input_data, context)
+                            duration_ms = int((time.time() - start_time) * 1000)
+
+                            result = {
+                                'result': func_result,
+                                'execution_id': execution_id,
+                                'duration_ms': duration_ms,
+                                'status': 'completed',
+                            }
+
+                        except Exception as e:
+                            result = {
+                                'error': str(e),
+                                'traceback': traceback.format_exc(),
+                                'execution_id': execution_id,
+                                'status': 'failed',
+                            }
+
+                        # Write result
+                        with open('/tmp/exec_result.json', 'w') as f:
+                            json.dump(result, f)
 
                     # Clear request file
                     import os

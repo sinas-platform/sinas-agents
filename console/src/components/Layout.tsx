@@ -58,6 +58,7 @@ const navigationSections = [
   {
     name: 'SYSTEM',
     items: [
+      { name: 'Workers', href: '/workers', icon: Server },
       { name: 'Config Manager', href: '/config', icon: Settings },
     ],
   },

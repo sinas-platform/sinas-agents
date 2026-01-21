@@ -151,12 +151,36 @@ The ontology system connects logical **Concepts** (e.g., Customer, Order) to phy
 **Execution Flow:**
 1. Function code parsed and validated
 2. AST injection adds `@track` decorator to all function definitions
-3. Code executed in isolated namespace with tracking
+3. Code executed in isolated namespace with tracking and context
 4. Functions can call other functions - tracked as step executions
 5. All calls logged to Execution and StepExecution tables
 
+**Function Signature:**
+All functions receive two parameters:
+```python
+def my_function(input, context):
+    """
+    Args:
+        input: Input data validated against input_schema
+        context: Execution context dict containing:
+            - user_id: Authenticated user's ID
+            - user_email: User's email address
+            - access_token: JWT token for making authenticated API calls
+            - execution_id: Current execution ID
+            - trigger_type: How function was triggered (WEBHOOK, AGENT, SCHEDULE)
+            - chat_id: Optional chat ID if triggered from a chat
+    """
+    # Use access_token to make authenticated API calls
+    import requests
+    headers = {"Authorization": f"Bearer {context['access_token']}"}
+    response = requests.get("http://host.docker.internal:8000/api/v1/...", headers=headers)
+    return response.json()
+```
+
 **Key Components:**
 - `app/services/execution_engine.py` - Core execution with AST injection for tracking
+- `app/services/user_container_manager.py` - Docker container management for isolated execution
+- `backend/container_executor.py` - Container runtime that executes functions
 - `app/services/tracking.py` - ExecutionTracker for multi-step function calls
 - `app/models/execution.py` - Execution, StepExecution models
 - `app/api/v1/endpoints/webhook_handler.py` - HTTP webhook triggers
@@ -166,7 +190,10 @@ The ontology system connects logical **Concepts** (e.g., Customer, Order) to phy
 - `TrackingDecorator` wraps function calls to record StepExecutions
 - Execution tree captured: parent function → child function calls → grandchild calls, etc.
 
-**Important:** Functions execute with `dill` serialization for complex types, `jsonschema` validation on inputs/outputs.
+**Important:**
+- Functions execute with `dill` serialization for complex types, `jsonschema` validation on inputs/outputs
+- Context object is automatically injected with fresh JWT token on each execution
+- Access token allows functions to make authenticated API calls back to SINAS
 
 ### Database Architecture
 

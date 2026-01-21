@@ -5,7 +5,7 @@ import { Bot, Plus, Trash2, Edit, CheckCircle, XCircle } from 'lucide-react';
 import { useState } from 'react';
 import type { AssistantCreate } from '../types';
 
-export function Assistants() {
+export function Agents() {
   const queryClient = useQueryClient();
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [formData, setFormData] = useState<AssistantCreate>({

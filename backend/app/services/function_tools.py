@@ -194,8 +194,8 @@ class FunctionToolConverter:
             raise ValueError(f"Function not found: {tool_name}")
 
         # Merge prefilled params with LLM arguments
-        # LLM arguments take precedence
-        final_input = {**(prefilled_params or {}), **arguments}
+        # Prefilled params take precedence (handle None arguments as empty dict)
+        final_input = {**(arguments or {}), **(prefilled_params or {})}
 
         # Execute function directly via execution engine
         from app.services.execution_engine import executor, FunctionExecutionError

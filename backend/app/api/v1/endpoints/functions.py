@@ -31,6 +31,14 @@ async def create_function(
         raise HTTPException(status_code=403, detail="Not authorized to create functions in this namespace")
     set_permission_used(request, permission)
 
+    # Check shared_pool permission (admin-only)
+    if function_data.shared_pool:
+        shared_pool_permission = "sinas.functions.shared_pool:all"
+        if not check_permission(permissions, shared_pool_permission):
+            set_permission_used(request, shared_pool_permission, has_perm=False)
+            raise HTTPException(status_code=403, detail="Not authorized to create shared pool functions (admin only)")
+        set_permission_used(request, shared_pool_permission)
+
     # Check if function name already exists in this namespace
     result = await db.execute(
         select(Function).where(
@@ -160,6 +168,14 @@ async def update_function(
     else:
         set_permission_used(request, permission, has_perm=False)
         raise HTTPException(status_code=403, detail="Not authorized to update this function")
+
+    # Check shared_pool permission (admin-only) if trying to enable it
+    if function_data.shared_pool is not None and function_data.shared_pool:
+        shared_pool_permission = "sinas.functions.shared_pool:all"
+        if not check_permission(permissions, shared_pool_permission):
+            set_permission_used(request, shared_pool_permission, has_perm=False)
+            raise HTTPException(status_code=403, detail="Not authorized to enable shared pool (admin only)")
+        set_permission_used(request, shared_pool_permission)
 
     # Update fields
     if function_data.description is not None:

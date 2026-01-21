@@ -4,7 +4,7 @@ import { apiClient } from '../lib/api';
 import { Plus, Search, Tag, Eye, Users, Lock, Trash2, Edit, X } from 'lucide-react';
 import CodeEditor from '@uiw/react-textarea-code-editor';
 
-export function ContextStore() {
+export function States() {
   const queryClient = useQueryClient();
   const [showModal, setShowModal] = useState(false);
   const [editingState, setEditingState] = useState<any>(null);
@@ -138,7 +138,7 @@ export function ContextStore() {
                 value={filters.search}
                 onChange={(e) => setFilters({ ...filters, search: e.target.value })}
                 placeholder="Search keys, descriptions..."
-                className="input pl-10"
+                className="input !pl-11"
               />
             </div>
           </div>

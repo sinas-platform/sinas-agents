@@ -92,6 +92,10 @@ async def lifespan(app: FastAPI):
     from app.services.user_container_manager import container_manager
     await container_manager.start_cleanup_task()
 
+    # Initialize shared worker manager
+    from app.services.shared_worker_manager import shared_worker_manager
+    await shared_worker_manager.initialize()
+
     yield
     # Shutdown
     await scheduler.stop()

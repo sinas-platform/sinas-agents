@@ -35,6 +35,7 @@ export function ChatDetail() {
   const [streamingContent, setStreamingContent] = useState('');
   const [isStreaming, setIsStreaming] = useState(false);
   const [pendingApprovals, setPendingApprovals] = useState<ApprovalRequiredEvent[]>([]);
+  const [processingApproval, setProcessingApproval] = useState<string | null>(null);
 
   const toggleToolCall = (messageId: string) => {
     setExpandedToolCalls(prev => {
@@ -57,6 +58,8 @@ export function ChatDetail() {
 
   const handleApproval = async (approval: ApprovalRequiredEvent, approved: boolean) => {
     if (!chatId) return;
+
+    setProcessingApproval(approval.tool_call_id);
 
     try {
       const token = localStorage.getItem('auth_token');
@@ -86,6 +89,8 @@ export function ChatDetail() {
     } catch (error) {
       console.error('Approval error:', error);
       alert('Failed to process approval. Please try again.');
+    } finally {
+      setProcessingApproval(null);
     }
   };
 
@@ -531,48 +536,68 @@ export function ChatDetail() {
         {/* Pending Approvals */}
         {pendingApprovals.length > 0 && (
           <div className="space-y-3">
-            {pendingApprovals.map((approval) => (
-              <div key={approval.tool_call_id} className="border-2 border-yellow-400 bg-yellow-50 rounded-lg p-4 shadow-md">
-                <div className="flex items-start gap-3">
-                  <div className="flex-shrink-0 w-10 h-10 rounded-full bg-yellow-100 flex items-center justify-center">
-                    <AlertTriangle className="w-6 h-6 text-yellow-600" />
-                  </div>
-                  <div className="flex-1">
-                    <h4 className="font-semibold text-yellow-900 mb-1">Function Approval Required</h4>
-                    <p className="text-sm text-yellow-800 mb-2">
-                      The assistant wants to call <code className="px-2 py-0.5 bg-yellow-200 rounded font-mono text-xs">{approval.function_namespace}/{approval.function_name}</code>
-                    </p>
+            {pendingApprovals.map((approval) => {
+              const isProcessing = processingApproval === approval.tool_call_id;
+              return (
+                <div key={approval.tool_call_id} className={`border-2 ${isProcessing ? 'border-blue-400 bg-blue-50' : 'border-yellow-400 bg-yellow-50'} rounded-lg p-4 shadow-md transition-all`}>
+                  <div className="flex items-start gap-3">
+                    <div className={`flex-shrink-0 w-10 h-10 rounded-full ${isProcessing ? 'bg-blue-100' : 'bg-yellow-100'} flex items-center justify-center`}>
+                      {isProcessing ? (
+                        <Loader2 className="w-6 h-6 text-blue-600 animate-spin" />
+                      ) : (
+                        <AlertTriangle className="w-6 h-6 text-yellow-600" />
+                      )}
+                    </div>
+                    <div className="flex-1">
+                      <h4 className={`font-semibold ${isProcessing ? 'text-blue-900' : 'text-yellow-900'} mb-1`}>
+                        {isProcessing ? 'Processing...' : 'Function Approval Required'}
+                      </h4>
+                      <p className={`text-sm ${isProcessing ? 'text-blue-800' : 'text-yellow-800'} mb-2`}>
+                        The agent wants to call <code className={`px-2 py-0.5 ${isProcessing ? 'bg-blue-200' : 'bg-yellow-200'} rounded font-mono text-xs`}>{approval.function_namespace}/{approval.function_name}</code>
+                      </p>
 
-                    {/* Show arguments */}
-                    {Object.keys(approval.arguments).length > 0 && (
-                      <div className="mb-3">
-                        <p className="text-xs font-medium text-yellow-900 mb-1">Arguments:</p>
-                        <pre className="text-xs bg-white border border-yellow-200 rounded p-2 overflow-x-auto">
-                          {JSON.stringify(approval.arguments, null, 2)}
-                        </pre>
+                      {/* Show arguments */}
+                      {Object.keys(approval.arguments).length > 0 && (
+                        <div className="mb-3">
+                          <p className={`text-xs font-medium ${isProcessing ? 'text-blue-900' : 'text-yellow-900'} mb-1`}>Arguments:</p>
+                          <pre className={`text-xs bg-white border ${isProcessing ? 'border-blue-200' : 'border-yellow-200'} rounded p-2 overflow-x-auto`}>
+                            {JSON.stringify(approval.arguments, null, 2)}
+                          </pre>
+                        </div>
+                      )}
+
+                      <div className="flex gap-2">
+                        <button
+                          onClick={() => handleApproval(approval, true)}
+                          disabled={isProcessing}
+                          className="flex items-center gap-2 px-4 py-2 bg-green-600 hover:bg-green-700 disabled:bg-gray-400 disabled:cursor-not-allowed text-white rounded-lg font-medium text-sm transition-colors"
+                        >
+                          {isProcessing ? (
+                            <>
+                              <Loader2 className="w-4 h-4 animate-spin" />
+                              Processing...
+                            </>
+                          ) : (
+                            <>
+                              <Check className="w-4 h-4" />
+                              Approve
+                            </>
+                          )}
+                        </button>
+                        <button
+                          onClick={() => handleApproval(approval, false)}
+                          disabled={isProcessing}
+                          className="flex items-center gap-2 px-4 py-2 bg-red-600 hover:bg-red-700 disabled:bg-gray-400 disabled:cursor-not-allowed text-white rounded-lg font-medium text-sm transition-colors"
+                        >
+                          <X className="w-4 h-4" />
+                          Reject
+                        </button>
                       </div>
-                    )}
-
-                    <div className="flex gap-2">
-                      <button
-                        onClick={() => handleApproval(approval, true)}
-                        className="flex items-center gap-2 px-4 py-2 bg-green-600 hover:bg-green-700 text-white rounded-lg font-medium text-sm transition-colors"
-                      >
-                        <Check className="w-4 h-4" />
-                        Approve
-                      </button>
-                      <button
-                        onClick={() => handleApproval(approval, false)}
-                        className="flex items-center gap-2 px-4 py-2 bg-red-600 hover:bg-red-700 text-white rounded-lg font-medium text-sm transition-colors"
-                      >
-                        <X className="w-4 h-4" />
-                        Reject
-                      </button>
                     </div>
                   </div>
                 </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
         )}
 

@@ -246,17 +246,33 @@ async def list_group_members(
             raise HTTPException(status_code=403, detail="Not authorized to view this group")
         set_permission_used(request, "sinas.groups.get:own")
 
+    # Join with User table to get email addresses
     result = await db.execute(
-        select(GroupMember).where(
+        select(GroupMember, User.email).join(
+            User, GroupMember.user_id == User.id
+        ).where(
             and_(
                 GroupMember.group_id == group.id,
                 GroupMember.active == True
             )
         )
     )
-    members = result.scalars().all()
+    rows = result.all()
 
-    return members
+    # Build response with user_email
+    members_response = []
+    for member, email in rows:
+        members_response.append(GroupMemberResponse(
+            id=member.id,
+            group_id=member.group_id,
+            user_id=member.user_id,
+            user_email=email,
+            role=member.role,
+            active=member.active,
+            added_at=member.added_at
+        ))
+
+    return members_response
 
 
 @router.post("/{name}/members", response_model=GroupMemberResponse)

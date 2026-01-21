@@ -617,6 +617,22 @@ class APIClient {
     });
     return response.data;
   }
+
+  // Workers
+  async listWorkers(): Promise<any[]> {
+    const response = await this.configClient.get('/workers');
+    return response.data;
+  }
+
+  async getWorkerCount(): Promise<{ count: number }> {
+    const response = await this.configClient.get('/workers/count');
+    return response.data;
+  }
+
+  async scaleWorkers(targetCount: number): Promise<any> {
+    const response = await this.configClient.post('/workers/scale', { target_count: targetCount });
+    return response.data;
+  }
 }
 
 export const apiClient = new APIClient();

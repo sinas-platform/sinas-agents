@@ -5,7 +5,7 @@ import { useState, useEffect } from 'react';
 import { ArrowLeft, Save, Trash2, Loader2, Bot } from 'lucide-react';
 import type { AssistantUpdate } from '../types';
 
-export function AssistantDetail() {
+export function AgentDetail() {
   const { namespace, name } = useParams<{ namespace: string; name: string }>();
   const navigate = useNavigate();
   const queryClient = useQueryClient();

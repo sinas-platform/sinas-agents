@@ -272,11 +272,15 @@ sys.exit(1)
     async def execute_function(
         self,
         user_id: str,
+        user_email: str,
+        access_token: str,
         function_namespace: str,
         function_name: str,
         enabled_namespaces: List[str],
         input_data: Dict[str, Any],
         execution_id: str,
+        trigger_type: str,
+        chat_id: Optional[str],
         db: AsyncSession,
     ) -> Dict[str, Any]:
         """Execute a function in user's container."""
@@ -287,7 +291,7 @@ sys.exit(1)
             if user_id in self.user_containers:
                 self.user_containers[user_id]['last_used'] = time.time()
 
-        # Prepare execution payload
+        # Prepare execution payload with context
         payload = {
             'action': 'execute',
             'execution_id': execution_id,
@@ -295,6 +299,14 @@ sys.exit(1)
             'function_name': function_name,
             'enabled_namespaces': enabled_namespaces,
             'input_data': input_data,
+            'context': {
+                'user_id': user_id,
+                'user_email': user_email,
+                'access_token': access_token,
+                'execution_id': execution_id,
+                'trigger_type': trigger_type,
+                'chat_id': chat_id,
+            }
         }
 
         try:

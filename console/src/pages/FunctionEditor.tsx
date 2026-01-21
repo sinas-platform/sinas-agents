@@ -14,16 +14,28 @@ export function FunctionEditor() {
   const [formData, setFormData] = useState({
     name: '',
     description: '',
-    code: `def my_function(input):
+    code: `def my_function(input, context):
     """
     Function entry point.
 
     Args:
         input: Input parameters validated against input_schema
+        context: Execution context containing:
+            - user_id: Authenticated user's ID
+            - user_email: User's email address
+            - access_token: JWT token for making authenticated API calls
+            - execution_id: Current execution ID
+            - trigger_type: How function was triggered (WEBHOOK, AGENT, SCHEDULE)
+            - chat_id: Optional chat ID if triggered from a chat
 
     Returns:
         Any type matching output_schema (string, number, boolean, array, object, etc.)
     """
+    # Example: Use access token to call other SINAS APIs
+    # import requests
+    # headers = {"Authorization": f"Bearer {context['access_token']}"}
+    # response = requests.get("http://host.docker.internal:8000/api/v1/...", headers=headers)
+
     # Your code here
     return {"result": "success"}`,
     input_schema: '{\n  "type": "object",\n  "properties": {\n    "message": {\n      "type": "string",\n      "description": "Input message"\n    }\n  },\n  "required": ["message"]\n}',
@@ -104,10 +116,10 @@ export function FunctionEditor() {
       JSON.parse(formData.input_schema);
       JSON.parse(formData.output_schema);
 
-      // Validate that function definition exists
+      // Validate that function definition exists (with optional context parameter)
       const functionDefRegex = new RegExp(`def\\s+${formData.name}\\s*\\(`);
       if (!functionDefRegex.test(formData.code)) {
-        alert(`Code must contain a function definition matching the name: def ${formData.name}(input):`);
+        alert(`Code must contain a function definition matching the name: def ${formData.name}(input, context):`);
         return;
       }
 
@@ -341,7 +353,7 @@ export function FunctionEditor() {
           </div>
           <div className="flex items-center justify-between mt-2">
             <p className="text-xs text-gray-500">
-              Entry point must be <code className="font-mono bg-gray-100 px-1 rounded">def {formData.name || 'function_name'}(input):</code> matching the Function Name above. Return value can be any type matching output_schema.
+              Entry point must be <code className="font-mono bg-gray-100 px-1 rounded">def {formData.name || 'function_name'}(input, context):</code> matching the Function Name above. The <code className="font-mono bg-gray-100 px-1 rounded">context</code> parameter provides user info and access token. Return value can be any type matching output_schema.
             </p>
             {formData.name && (
               <div className="flex items-center ml-4">
