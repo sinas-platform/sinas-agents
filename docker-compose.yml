@@ -39,6 +39,15 @@ services:
       timeout: 3s
       retries: 5
 
+  executor:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile.executor
+    image: sinas-executor
+    command: "true"  # Don't run, just build the image
+    deploy:
+      replicas: 0  # Don't actually run this service
+
   backend:
     build:
       context: ./backend
@@ -83,6 +92,7 @@ services:
       ALLOW_PACKAGE_INSTALLATION: ${ALLOW_PACKAGE_INSTALLATION:-true}
       ENCRYPTION_KEY: ${ENCRYPTION_KEY:?ENCRYPTION_KEY must be set in .env file}
       SUPERADMIN_EMAIL: ${SUPERADMIN_EMAIL:-}
+      DOCKER_NETWORK: ${DOCKER_NETWORK:-auto}
     depends_on:
       clickhouse:
         condition: service_healthy

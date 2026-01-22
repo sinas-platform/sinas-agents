@@ -28,6 +28,31 @@ class SharedWorkerManager:
         self.next_worker_index = 0  # For round-robin load balancing
         self._lock = asyncio.Lock()
         self._initialized = False
+        self.docker_network = self._detect_network()
+
+    def _detect_network(self) -> str:
+        """Auto-detect Docker network if set to 'auto', otherwise use configured value."""
+        network = settings.docker_network
+
+        if network != "auto":
+            return network
+
+        # Try to auto-detect by inspecting the backend container
+        try:
+            import socket
+            hostname = socket.gethostname()
+            container = self.client.containers.get(hostname)
+            networks = list(container.attrs['NetworkSettings']['Networks'].keys())
+            if networks:
+                detected = networks[0]
+                print(f"🔍 Auto-detected Docker network: {detected}")
+                return detected
+        except Exception as e:
+            print(f"⚠️  Failed to auto-detect network: {e}")
+
+        # Fallback to common default
+        print("⚠️  Using fallback network: bridge")
+        return "bridge"
 
     async def initialize(self):
         """
@@ -171,7 +196,7 @@ class SharedWorkerManager:
                 image=settings.function_container_image,  # sinas-executor
                 name=container_name,
                 detach=True,
-                network=settings.docker_network,
+                network=self.docker_network,
                 mem_limit="1g",
                 nano_cpus=1_000_000_000,  # 1 CPU core
                 cap_drop=['ALL'],  # Drop all capabilities for security

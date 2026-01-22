@@ -73,7 +73,7 @@ class Settings(BaseSettings):
     allowed_packages: Optional[str] = None  # Comma-separated whitelist, None = all allowed
 
     # Docker configuration
-    docker_network: str = "sinas_default"  # Docker network for containers
+    docker_network: str = "auto"  # Docker network for containers (auto-detect or specify)
     default_worker_count: int = 2  # Number of workers to start on backend startup
 
     # Encryption
