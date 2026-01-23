@@ -9,13 +9,14 @@ export function Agents() {
   const queryClient = useQueryClient();
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [formData, setFormData] = useState<AssistantCreate>({
+    namespace: 'default',
     name: '',
     description: '',
     system_prompt: '',
   });
 
-  const { data: assistants, isLoading } = useQuery({
-    queryKey: ['assistants'],
+  const { data: agents, isLoading } = useQuery({
+    queryKey: ['agents'],
     queryFn: () => apiClient.listAssistants(),
     retry: false,
   });
@@ -35,16 +36,16 @@ export function Agents() {
   const createMutation = useMutation({
     mutationFn: (data: AssistantCreate) => apiClient.createAssistant(data),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['assistants'] });
+      queryClient.invalidateQueries({ queryKey: ['agents'] });
       setShowCreateModal(false);
-      setFormData({ name: '', description: '', system_prompt: '' });
+      setFormData({ namespace: 'default', name: '', description: '', system_prompt: '' });
     },
   });
 
   const deleteMutation = useMutation({
     mutationFn: ({ namespace, name }: { namespace: string; name: string }) => apiClient.deleteAssistant(namespace, name),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['assistants'] });
+      queryClient.invalidateQueries({ queryKey: ['agents'] });
     },
   });
 
@@ -78,22 +79,22 @@ export function Agents() {
           <div className="inline-block animate-spin rounded-full h-8 w-8 border-b-2 border-primary-600"></div>
           <p className="text-gray-600 mt-2">Loading agents...</p>
         </div>
-      ) : assistants && assistants.length > 0 ? (
+      ) : agents && agents.length > 0 ? (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-          {assistants.map((assistant) => (
-            <div key={assistant.id} className="card hover:shadow-md transition-shadow">
+          {agents.map((agent) => (
+            <div key={agent.id} className="card hover:shadow-md transition-shadow">
               <div className="flex items-start justify-between mb-4">
                 <div className="flex items-center flex-1 min-w-0">
                   <Bot className="w-8 h-8 text-primary-600 mr-3 flex-shrink-0" />
                   <div className="min-w-0 flex-1">
-                    <h3 className="font-semibold text-gray-900 truncate">{assistant.name}</h3>
+                    <h3 className="font-semibold text-gray-900 truncate">{agent.name}</h3>
                     <p className="text-xs text-gray-500">
-                      {new Date(assistant.created_at).toLocaleDateString()}
+                      {new Date(agent.created_at).toLocaleDateString()}
                     </p>
                   </div>
                 </div>
                 <div className="ml-2 flex-shrink-0">
-                  {assistant.is_active ? (
+                  {agent.is_active ? (
                     <CheckCircle className="w-5 h-5 text-green-500" />
                   ) : (
                     <XCircle className="w-5 h-5 text-gray-400" />
@@ -103,57 +104,57 @@ export function Agents() {
 
               <div className="mb-4">
                 <p className="text-sm text-gray-600 line-clamp-2 min-h-[40px]">
-                  {assistant.description || 'No description provided'}
+                  {agent.description || 'No description provided'}
                 </p>
               </div>
 
               <div className="space-y-2 mb-4">
-                {assistant.llm_provider_id && (
+                {agent.llm_provider_id && (
                   <div className="text-xs text-gray-600">
                     <span className="font-medium">Provider:</span>{' '}
-                    {llmProviders?.find(p => p.id === assistant.llm_provider_id)?.name || 'Unknown'}
+                    {llmProviders?.find(p => p.id === agent.llm_provider_id)?.name || 'Unknown'}
                   </div>
                 )}
-                {assistant.model && (
+                {agent.model && (
                   <div className="text-xs text-gray-600">
-                    <span className="font-medium">Model:</span> {assistant.model}
+                    <span className="font-medium">Model:</span> {agent.model}
                   </div>
                 )}
-                {assistant.system_prompt && (
+                {agent.system_prompt && (
                   <div className="text-xs text-gray-600">
                     <span className="font-medium">System Prompt:</span> Configured
                   </div>
                 )}
-                {assistant.input_schema && Object.keys(assistant.input_schema).length > 0 && (
+                {agent.input_schema && Object.keys(agent.input_schema).length > 0 && (
                   <div className="text-xs text-gray-600">
                     <span className="font-medium">Input Schema:</span> Defined
                   </div>
                 )}
-                {assistant.output_schema && Object.keys(assistant.output_schema).length > 0 && (
+                {agent.output_schema && Object.keys(agent.output_schema).length > 0 && (
                   <div className="text-xs text-gray-600">
                     <span className="font-medium">Output Schema:</span> Defined
                   </div>
                 )}
-                {assistant.enabled_agents && assistant.enabled_agents.length > 0 && (
+                {agent.enabled_agents && agent.enabled_agents.length > 0 && (
                   <div className="text-xs text-gray-600">
-                    <span className="font-medium">Other Agents:</span> {assistant.enabled_agents.length}
+                    <span className="font-medium">Other Agents:</span> {agent.enabled_agents.length}
                   </div>
                 )}
-                {assistant.enabled_functions.length > 0 && (
+                {agent.enabled_functions.length > 0 && (
                   <div className="text-xs text-gray-600">
-                    <span className="font-medium">Functions:</span> {assistant.enabled_functions.length}
+                    <span className="font-medium">Functions:</span> {agent.enabled_functions.length}
                   </div>
                 )}
-                {assistant.enabled_mcp_tools.length > 0 && (
+                {agent.enabled_mcp_tools.length > 0 && (
                   <div className="text-xs text-gray-600">
-                    <span className="font-medium">MCP Tools:</span> {assistant.enabled_mcp_tools.length}
+                    <span className="font-medium">MCP Tools:</span> {agent.enabled_mcp_tools.length}
                   </div>
                 )}
               </div>
 
               <div className="flex items-center justify-between pt-4 border-t border-gray-200">
                 <Link
-                  to={`/agents/${assistant.namespace}/${assistant.name}`}
+                  to={`/agents/${agent.namespace}/${agent.name}`}
                   className="text-sm text-primary-600 hover:text-primary-700 flex items-center"
                 >
                   <Edit className="w-4 h-4 mr-1" />
@@ -162,7 +163,7 @@ export function Agents() {
                 <button
                   onClick={() => {
                     if (confirm('Are you sure you want to delete this agent?')) {
-                      deleteMutation.mutate({ namespace: assistant.namespace, name: assistant.name });
+                      deleteMutation.mutate({ namespace: agent.namespace, name: agent.name });
                     }
                   }}
                   className="text-sm text-red-600 hover:text-red-700 flex items-center"
@@ -193,6 +194,25 @@ export function Agents() {
             <h2 className="text-xl font-semibold text-gray-900 mb-4">Create New Agent</h2>
             <form onSubmit={handleCreate} className="space-y-4">
               <div>
+                <label htmlFor="namespace" className="block text-sm font-medium text-gray-700 mb-2">
+                  Namespace *
+                </label>
+                <input
+                  id="namespace"
+                  type="text"
+                  value={formData.namespace}
+                  onChange={(e) => setFormData({ ...formData, namespace: e.target.value })}
+                  placeholder="default"
+                  required
+                  className="input"
+                  autoFocus
+                />
+                <p className="text-xs text-gray-500 mt-1">
+                  Namespace for organizing agents (e.g., "default", "customer-service")
+                </p>
+              </div>
+
+              <div>
                 <label htmlFor="name" className="block text-sm font-medium text-gray-700 mb-2">
                   Name *
                 </label>
@@ -204,7 +224,6 @@ export function Agents() {
                   placeholder="My Agent"
                   required
                   className="input"
-                  autoFocus
                 />
               </div>
 
@@ -263,7 +282,7 @@ export function Agents() {
                   type="button"
                   onClick={() => {
                     setShowCreateModal(false);
-                    setFormData({ name: '', description: '', system_prompt: '' });
+                    setFormData({ namespace: 'default', name: '', description: '', system_prompt: '' });
                   }}
                   className="btn btn-secondary"
                   disabled={createMutation.isPending}

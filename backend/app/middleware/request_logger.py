@@ -78,14 +78,17 @@ class RequestLoggerMiddleware:
         await self.app(scope, receive_with_caching, send_with_capturing)
 
         # After request is processed, parse the cached body
-        if body_parts and method in ["POST", "PUT", "PATCH"]:
+        # Skip logging request bodies for auth endpoints (security best practice)
+        is_auth_endpoint = path.startswith("/api/auth/") or "/login" in path or "/verify-otp" in path or "/refresh" in path or "/logout" in path
+
+        if body_parts and method in ["POST", "PUT", "PATCH"] and not is_auth_endpoint:
             full_body = b"".join(body_parts)
             if full_body and "application/json" in content_type:
                 try:
                     request_body = json.loads(full_body.decode())
                     # Redact sensitive fields
                     if isinstance(request_body, dict):
-                        for sensitive_key in ["password", "api_key", "secret", "token", "otp"]:
+                        for sensitive_key in ["password", "api_key", "secret", "token", "refresh_token", "access_token", "otp"]:
                             if sensitive_key in request_body:
                                 request_body[sensitive_key] = "***REDACTED***"
                 except Exception:

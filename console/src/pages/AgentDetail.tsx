@@ -10,8 +10,8 @@ export function AgentDetail() {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
 
-  const { data: assistant, isLoading } = useQuery({
-    queryKey: ['assistant', namespace, name],
+  const { data: agent, isLoading } = useQuery({
+    queryKey: ['agent', namespace, name],
     queryFn: () => apiClient.getAssistant(namespace!, name!),
     enabled: !!namespace && !!name,
   });
@@ -34,8 +34,8 @@ export function AgentDetail() {
     retry: false,
   });
 
-  const { data: assistants } = useQuery({
-    queryKey: ['assistants'],
+  const { data: agents } = useQuery({
+    queryKey: ['agents'],
     queryFn: () => apiClient.listAssistants(),
     retry: false,
   });
@@ -54,36 +54,40 @@ export function AgentDetail() {
 
   const [formData, setFormData] = useState<AssistantUpdate>({});
   const [toolsTab, setToolsTab] = useState<'assistants' | 'functions' | 'mcp' | 'states'>('assistants');
+  const [expandedFunctionParams, setExpandedFunctionParams] = useState<Set<string>>(new Set());
 
-  // Initialize form data when assistant loads
+  // Initialize form data when agent loads
   useEffect(() => {
-    if (assistant) {
+    if (agent) {
       setFormData({
-        name: assistant.name,
-        description: assistant.description || '',
-        llm_provider_id: assistant.llm_provider_id || undefined,
-        model: assistant.model || undefined,
-        temperature: assistant.temperature,
-        max_tokens: assistant.max_tokens ?? undefined,
-        system_prompt: assistant.system_prompt || undefined,
-        input_schema: assistant.input_schema || {},
-        output_schema: assistant.output_schema || {},
-        initial_messages: assistant.initial_messages || [],
-        is_active: assistant.is_active,
-        enabled_functions: assistant.enabled_functions || [],
-        enabled_mcp_tools: assistant.enabled_mcp_tools || [],
-        enabled_agents: assistant.enabled_agents || [],
-        state_namespaces_readonly: assistant.state_namespaces_readonly || [],
-        state_namespaces_readwrite: assistant.state_namespaces_readwrite || [],
+        namespace: agent.namespace,
+        name: agent.name,
+        description: agent.description || '',
+        llm_provider_id: agent.llm_provider_id || undefined,
+        model: agent.model || undefined,
+        temperature: agent.temperature,
+        max_tokens: agent.max_tokens ?? undefined,
+        system_prompt: agent.system_prompt || undefined,
+        input_schema: agent.input_schema || {},
+        output_schema: agent.output_schema || {},
+        initial_messages: agent.initial_messages || [],
+        is_active: agent.is_active,
+        enabled_functions: agent.enabled_functions || [],
+        enabled_mcp_tools: agent.enabled_mcp_tools || [],
+        enabled_agents: agent.enabled_agents || [],
+        function_parameters: agent.function_parameters || {},
+        mcp_tool_parameters: agent.mcp_tool_parameters || {},
+        state_namespaces_readonly: agent.state_namespaces_readonly || [],
+        state_namespaces_readwrite: agent.state_namespaces_readwrite || [],
       });
     }
-  }, [assistant]);
+  }, [agent]);
 
   const updateMutation = useMutation({
     mutationFn: (data: AssistantUpdate) => apiClient.updateAssistant(namespace!, name!, data),
     onSuccess: (data) => {
-      queryClient.invalidateQueries({ queryKey: ['assistant', namespace, name] });
-      queryClient.invalidateQueries({ queryKey: ['assistants'] });
+      queryClient.invalidateQueries({ queryKey: ['agent', namespace, name] });
+      queryClient.invalidateQueries({ queryKey: ['agents'] });
       if (data.namespace !== namespace || data.name !== name) {
         // Name or namespace changed, navigate to new URL
         navigate(`/agents/${data.namespace}/${data.name}`);
@@ -94,7 +98,7 @@ export function AgentDetail() {
   const deleteMutation = useMutation({
     mutationFn: () => apiClient.deleteAssistant(namespace!, name!),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['assistants'] });
+      queryClient.invalidateQueries({ queryKey: ['agents'] });
       navigate('/agents');
     },
   });
@@ -118,7 +122,7 @@ export function AgentDetail() {
     );
   }
 
-  if (!assistant) {
+  if (!agent) {
     return (
       <div className="text-center py-12">
         <h2 className="text-xl font-semibold text-gray-900">Agent not found</h2>
@@ -138,7 +142,7 @@ export function AgentDetail() {
             <ArrowLeft className="w-5 h-5" />
           </Link>
           <div>
-            <h1 className="text-3xl font-bold text-gray-900">{assistant.name}</h1>
+            <h1 className="text-3xl font-bold text-gray-900">{agent.name}</h1>
             <p className="text-gray-600 mt-1">Configure your AI agent</p>
           </div>
         </div>
@@ -159,13 +163,30 @@ export function AgentDetail() {
 
           <div className="space-y-4">
             <div>
+              <label htmlFor="namespace" className="block text-sm font-medium text-gray-700 mb-2">
+                Namespace *
+              </label>
+              <input
+                id="namespace"
+                type="text"
+                value={formData.namespace || agent.namespace}
+                onChange={(e) => setFormData({ ...formData, namespace: e.target.value })}
+                className="input"
+                required
+              />
+              <p className="text-xs text-gray-500 mt-1">
+                Namespace for organizing agents (e.g., "default", "customer-service")
+              </p>
+            </div>
+
+            <div>
               <label htmlFor="name" className="block text-sm font-medium text-gray-700 mb-2">
                 Name *
               </label>
               <input
                 id="name"
                 type="text"
-                value={formData.name || assistant.name}
+                value={formData.name || agent.name}
                 onChange={(e) => setFormData({ ...formData, name: e.target.value })}
                 className="input"
                 required
@@ -179,7 +200,7 @@ export function AgentDetail() {
               <input
                 id="description"
                 type="text"
-                value={formData.description ?? assistant.description ?? ''}
+                value={formData.description ?? agent.description ?? ''}
                 onChange={(e) => setFormData({ ...formData, description: e.target.value })}
                 placeholder="A helpful agent that..."
                 className="input"
@@ -192,7 +213,7 @@ export function AgentDetail() {
               </label>
               <select
                 id="group_id"
-                value={formData.group_id ?? assistant.group_id ?? ''}
+                value={formData.group_id ?? agent.group_id ?? ''}
                 onChange={(e) => setFormData({ ...formData, group_id: e.target.value || undefined })}
                 className="input"
               >
@@ -214,7 +235,7 @@ export function AgentDetail() {
               </label>
               <textarea
                 id="system_prompt"
-                value={formData.system_prompt ?? assistant.system_prompt ?? ''}
+                value={formData.system_prompt ?? agent.system_prompt ?? ''}
                 onChange={(e) => setFormData({ ...formData, system_prompt: e.target.value })}
                 placeholder="You are a helpful agent that..."
                 rows={8}
@@ -229,7 +250,7 @@ export function AgentDetail() {
               <input
                 id="is_active"
                 type="checkbox"
-                checked={formData.is_active ?? assistant.is_active}
+                checked={formData.is_active ?? agent.is_active}
                 onChange={(e) => setFormData({ ...formData, is_active: e.target.checked })}
                 className="w-4 h-4 text-primary-600 border-gray-300 rounded focus:ring-primary-500"
               />
@@ -251,7 +272,7 @@ export function AgentDetail() {
                 </label>
                 <select
                   id="llm_provider_id"
-                  value={formData.llm_provider_id ?? assistant.llm_provider_id ?? ''}
+                  value={formData.llm_provider_id ?? agent.llm_provider_id ?? ''}
                   onChange={(e) => {
                     const providerId = e.target.value || undefined;
                     setFormData({
@@ -280,7 +301,7 @@ export function AgentDetail() {
                 <input
                   id="model"
                   type="text"
-                  value={formData.model ?? assistant.model ?? ''}
+                  value={formData.model ?? agent.model ?? ''}
                   onChange={(e) => setFormData({ ...formData, model: e.target.value })}
                   placeholder="gpt-4o, claude-3-opus, etc."
                   className="input"
@@ -293,7 +314,7 @@ export function AgentDetail() {
 
             <div>
               <label htmlFor="temperature" className="block text-sm font-medium text-gray-700 mb-2">
-                Temperature ({formData.temperature ?? assistant.temperature})
+                Temperature ({formData.temperature ?? agent.temperature})
               </label>
               <input
                 id="temperature"
@@ -301,7 +322,7 @@ export function AgentDetail() {
                 min="0"
                 max="2"
                 step="0.1"
-                value={formData.temperature ?? assistant.temperature}
+                value={formData.temperature ?? agent.temperature}
                 onChange={(e) => setFormData({ ...formData, temperature: parseFloat(e.target.value) })}
                 className="w-full"
               />
@@ -321,7 +342,7 @@ export function AgentDetail() {
                 type="number"
                 min="1"
                 max="200000"
-                value={formData.max_tokens ?? assistant.max_tokens ?? ''}
+                value={formData.max_tokens ?? agent.max_tokens ?? ''}
                 onChange={(e) => setFormData({ ...formData, max_tokens: e.target.value ? parseInt(e.target.value) : undefined })}
                 placeholder="Leave empty for provider default"
                 className="input"
@@ -346,7 +367,7 @@ export function AgentDetail() {
               </label>
               <textarea
                 id="input_schema"
-                value={JSON.stringify(formData.input_schema ?? assistant.input_schema ?? {}, null, 2)}
+                value={JSON.stringify(formData.input_schema ?? agent.input_schema ?? {}, null, 2)}
                 onChange={(e) => {
                   try {
                     const parsed = JSON.parse(e.target.value);
@@ -370,7 +391,7 @@ export function AgentDetail() {
               </label>
               <textarea
                 id="output_schema"
-                value={JSON.stringify(formData.output_schema ?? assistant.output_schema ?? {}, null, 2)}
+                value={JSON.stringify(formData.output_schema ?? agent.output_schema ?? {}, null, 2)}
                 onChange={(e) => {
                   try {
                     const parsed = JSON.parse(e.target.value);
@@ -394,7 +415,7 @@ export function AgentDetail() {
               </label>
               <textarea
                 id="initial_messages"
-                value={JSON.stringify(formData.initial_messages ?? assistant.initial_messages ?? [], null, 2)}
+                value={JSON.stringify(formData.initial_messages ?? agent.initial_messages ?? [], null, 2)}
                 onChange={(e) => {
                   try {
                     const parsed = JSON.parse(e.target.value);
@@ -403,7 +424,7 @@ export function AgentDetail() {
                     // Invalid JSON, don't update
                   }
                 }}
-                placeholder='[{"role": "user", "content": "Example"}, {"role": "assistant", "content": "Response"}]'
+                placeholder='[{"role": "user", "content": "Example"}, {"role": "agent", "content": "Response"}]'
                 rows={6}
                 className="input resize-none font-mono text-xs"
               />
@@ -473,23 +494,23 @@ export function AgentDetail() {
                 <p className="text-xs text-gray-500 mb-3">
                   Enable other agents to be called as tools by this agent
                 </p>
-                {assistants && assistants.length > 1 ? (
+                {agents && agents.length > 1 ? (
                   <div className="space-y-2 border border-gray-200 rounded-lg p-3 max-h-96 overflow-y-auto">
-                    {assistants
-                      .filter((a: any) => a.id !== assistant.id)
-                      .map((otherAssistant: any) => (
+                    {agents
+                      .filter((a: any) => a.id !== agent.id)
+                      .map((otherAgent: any) => (
                         <label
-                          key={otherAssistant.id}
+                          key={otherAgent.id}
                           className="flex items-start p-2 hover:bg-gray-50 rounded cursor-pointer"
                         >
                           <input
                             type="checkbox"
-                            checked={(formData.enabled_agents || assistant.enabled_agents || []).includes(otherAssistant.id)}
+                            checked={(formData.enabled_agents || agent.enabled_agents || []).includes(otherAgent.id)}
                             onChange={(e) => {
-                              const current = formData.enabled_agents || assistant.enabled_agents || [];
+                              const current = formData.enabled_agents || agent.enabled_agents || [];
                               const updated = e.target.checked
-                                ? [...current, otherAssistant.id]
-                                : current.filter((id: string) => id !== otherAssistant.id);
+                                ? [...current, otherAgent.id]
+                                : current.filter((id: string) => id !== otherAgent.id);
                               setFormData({ ...formData, enabled_agents: updated });
                             }}
                             className="mt-1 w-4 h-4 text-primary-600 border-gray-300 rounded focus:ring-primary-500"
@@ -497,14 +518,14 @@ export function AgentDetail() {
                           <div className="ml-3 flex-1">
                             <div className="flex items-center gap-2">
                               <Bot className="w-4 h-4 text-primary-600" />
-                              <span className="text-sm font-medium text-gray-900">{otherAssistant.name}</span>
+                              <span className="text-sm font-medium text-gray-900">{otherAgent.name}</span>
                             </div>
-                            {otherAssistant.description && (
-                              <p className="text-xs text-gray-500 mt-0.5">{otherAssistant.description}</p>
+                            {otherAgent.description && (
+                              <p className="text-xs text-gray-500 mt-0.5">{otherAgent.description}</p>
                             )}
-                            {otherAssistant.provider && otherAssistant.model && (
+                            {otherAgent.provider && otherAgent.model && (
                               <p className="text-xs text-gray-400 mt-0.5">
-                                {otherAssistant.provider}/{otherAssistant.model}
+                                {otherAgent.provider}/{otherAgent.model}
                               </p>
                             )}
                           </div>
@@ -523,45 +544,121 @@ export function AgentDetail() {
             {toolsTab === 'functions' && (
               <div>
                 <p className="text-xs text-gray-500 mb-3">
-                  Select which functions this agent can call
+                  Select which functions this agent can call and configure default parameters
                 </p>
                 {functions && functions.length > 0 ? (
-                  <div className="space-y-2 border border-gray-200 rounded-lg p-3 max-h-96 overflow-y-auto">
+                  <div className="space-y-3 border border-gray-200 rounded-lg p-3 max-h-[600px] overflow-y-auto">
                     {functions.map((func: any) => {
                       const funcIdentifier = `${func.namespace}/${func.name}`;
+                      const isEnabled = (formData.enabled_functions || agent.enabled_functions || []).includes(funcIdentifier);
+                      const isExpanded = expandedFunctionParams.has(funcIdentifier);
+                      const inputSchema = func.input_schema || {};
+                      const properties = inputSchema.properties || {};
+                      const hasParameters = Object.keys(properties).length > 0;
+
                       return (
-                        <label
+                        <div
                           key={func.id}
-                          className="flex items-start p-2 hover:bg-gray-50 rounded cursor-pointer"
+                          className="border border-gray-200 rounded-lg p-3"
                         >
-                          <input
-                            type="checkbox"
-                            checked={(formData.enabled_functions || assistant.enabled_functions || []).includes(funcIdentifier)}
-                            onChange={(e) => {
-                              const currentFunctions = formData.enabled_functions || assistant.enabled_functions || [];
-                              const newFunctions = e.target.checked
-                                ? [...currentFunctions, funcIdentifier]
-                                : currentFunctions.filter((id: string) => id !== funcIdentifier);
-                              setFormData({ ...formData, enabled_functions: newFunctions });
-                            }}
-                            className="mt-1 w-4 h-4 text-primary-600 border-gray-300 rounded focus:ring-primary-500"
-                          />
-                          <div className="ml-3 flex-1">
-                            <div className="flex items-center gap-2">
-                              <span className="text-sm font-medium text-gray-900 font-mono">
-                                {funcIdentifier}
-                              </span>
-                              {!func.is_active && (
-                                <span className="px-2 py-0.5 bg-gray-100 text-gray-600 text-xs font-medium rounded">
-                                  Inactive
+                          <div className="flex items-start gap-3">
+                            <input
+                              type="checkbox"
+                              checked={isEnabled}
+                              onChange={(e) => {
+                                const currentFunctions = formData.enabled_functions || agent.enabled_functions || [];
+                                const newFunctions = e.target.checked
+                                  ? [...currentFunctions, funcIdentifier]
+                                  : currentFunctions.filter((id: string) => id !== funcIdentifier);
+                                setFormData({ ...formData, enabled_functions: newFunctions });
+                              }}
+                              className="mt-1 w-4 h-4 text-primary-600 border-gray-300 rounded focus:ring-primary-500"
+                            />
+                            <div className="flex-1">
+                              <div className="flex items-center gap-2">
+                                <span className="text-sm font-medium text-gray-900 font-mono">
+                                  {funcIdentifier}
                                 </span>
+                                {!func.is_active && (
+                                  <span className="px-2 py-0.5 bg-gray-100 text-gray-600 text-xs font-medium rounded">
+                                    Inactive
+                                  </span>
+                                )}
+                              </div>
+                              {func.description && (
+                                <p className="text-xs text-gray-600 mt-0.5">{func.description}</p>
+                              )}
+
+                              {/* Configure Parameters Button */}
+                              {isEnabled && hasParameters && (
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    const newExpanded = new Set(expandedFunctionParams);
+                                    if (isExpanded) {
+                                      newExpanded.delete(funcIdentifier);
+                                    } else {
+                                      newExpanded.add(funcIdentifier);
+                                    }
+                                    setExpandedFunctionParams(newExpanded);
+                                  }}
+                                  className="mt-2 text-xs text-primary-600 hover:text-primary-700 font-medium"
+                                >
+                                  {isExpanded ? '▼ Hide' : '▶'} Configure Default Parameters
+                                </button>
+                              )}
+
+                              {/* Parameter Configuration */}
+                              {isEnabled && isExpanded && hasParameters && (
+                                <div className="mt-3 space-y-3 pl-4 border-l-2 border-primary-200">
+                                  <p className="text-xs text-gray-500 italic">
+                                    Tip: Use Jinja2 templates like {'{{'} variable_name {'}}'}  to reference agent input variables
+                                  </p>
+                                  {Object.entries(properties).map(([paramName, paramDef]: [string, any]) => {
+                                    const currentParams = formData.function_parameters || agent.function_parameters || {};
+                                    const funcParams = currentParams[funcIdentifier] || {};
+                                    const paramValue = funcParams[paramName] || '';
+
+                                    return (
+                                      <div key={paramName}>
+                                        <label className="block text-xs font-medium text-gray-700 mb-1">
+                                          {paramName}
+                                          {paramDef.type && (
+                                            <span className="ml-1 text-gray-500">({paramDef.type})</span>
+                                          )}
+                                        </label>
+                                        <input
+                                          type="text"
+                                          value={paramValue}
+                                          onChange={(e) => {
+                                            const newFunctionParams = { ...formData.function_parameters || agent.function_parameters || {} };
+                                            if (!newFunctionParams[funcIdentifier]) {
+                                              newFunctionParams[funcIdentifier] = {};
+                                            }
+                                            if (e.target.value) {
+                                              newFunctionParams[funcIdentifier][paramName] = e.target.value;
+                                            } else {
+                                              delete newFunctionParams[funcIdentifier][paramName];
+                                              if (Object.keys(newFunctionParams[funcIdentifier]).length === 0) {
+                                                delete newFunctionParams[funcIdentifier];
+                                              }
+                                            }
+                                            setFormData({ ...formData, function_parameters: newFunctionParams });
+                                          }}
+                                          placeholder={paramDef.description || `Default value for ${paramName}`}
+                                          className="input text-xs font-mono"
+                                        />
+                                        {paramDef.description && (
+                                          <p className="text-xs text-gray-500 mt-0.5">{paramDef.description}</p>
+                                        )}
+                                      </div>
+                                    );
+                                  })}
+                                </div>
                               )}
                             </div>
-                            {func.description && (
-                              <p className="text-xs text-gray-600 mt-0.5">{func.description}</p>
-                            )}
                           </div>
-                        </label>
+                        </div>
                       );
                     })}
                   </div>
@@ -583,7 +680,7 @@ export function AgentDetail() {
                   <div className="space-y-2 border border-gray-200 rounded-lg p-3 max-h-96 overflow-y-auto">
                     {mcpTools.map((tool: any) => {
                       const toolName = tool.name || tool.tool_name;
-                      const isEnabled = (formData.enabled_mcp_tools || assistant.enabled_mcp_tools || []).includes(toolName);
+                      const isEnabled = (formData.enabled_mcp_tools || agent.enabled_mcp_tools || []).includes(toolName);
 
                       return (
                         <label
@@ -594,7 +691,7 @@ export function AgentDetail() {
                             type="checkbox"
                             checked={isEnabled}
                             onChange={(e) => {
-                              const current = formData.enabled_mcp_tools || assistant.enabled_mcp_tools || [];
+                              const current = formData.enabled_mcp_tools || agent.enabled_mcp_tools || [];
                               const updated = e.target.checked
                                 ? [...current, toolName]
                                 : current.filter((name: string) => name !== toolName);
@@ -643,9 +740,9 @@ export function AgentDetail() {
                         >
                           <input
                             type="checkbox"
-                            checked={(formData.state_namespaces_readonly || assistant.state_namespaces_readonly || []).includes(namespace)}
+                            checked={(formData.state_namespaces_readonly || agent.state_namespaces_readonly || []).includes(namespace)}
                             onChange={(e) => {
-                              const current = formData.state_namespaces_readonly || assistant.state_namespaces_readonly || [];
+                              const current = formData.state_namespaces_readonly || agent.state_namespaces_readonly || [];
                               const updated = e.target.checked
                                 ? [...current, namespace]
                                 : current.filter((ns: string) => ns !== namespace);
@@ -684,9 +781,9 @@ export function AgentDetail() {
                         >
                           <input
                             type="checkbox"
-                            checked={(formData.state_namespaces_readwrite || assistant.state_namespaces_readwrite || []).includes(namespace)}
+                            checked={(formData.state_namespaces_readwrite || agent.state_namespaces_readwrite || []).includes(namespace)}
                             onChange={(e) => {
-                              const current = formData.state_namespaces_readwrite || assistant.state_namespaces_readwrite || [];
+                              const current = formData.state_namespaces_readwrite || agent.state_namespaces_readwrite || [];
                               const updated = e.target.checked
                                 ? [...current, namespace]
                                 : current.filter((ns: string) => ns !== namespace);
@@ -719,19 +816,19 @@ export function AgentDetail() {
           <dl className="grid grid-cols-2 gap-4 text-sm">
             <div>
               <dt className="font-medium text-gray-700">Created</dt>
-              <dd className="text-gray-600">{new Date(assistant.created_at).toLocaleString()}</dd>
+              <dd className="text-gray-600">{new Date(agent.created_at).toLocaleString()}</dd>
             </div>
             <div>
               <dt className="font-medium text-gray-700">Last Updated</dt>
-              <dd className="text-gray-600">{new Date(assistant.updated_at).toLocaleString()}</dd>
+              <dd className="text-gray-600">{new Date(agent.updated_at).toLocaleString()}</dd>
             </div>
             <div>
               <dt className="font-medium text-gray-700">Agent ID</dt>
-              <dd className="text-gray-600 font-mono text-xs">{assistant.id}</dd>
+              <dd className="text-gray-600 font-mono text-xs">{agent.id}</dd>
             </div>
             <div>
               <dt className="font-medium text-gray-700">User ID</dt>
-              <dd className="text-gray-600 font-mono text-xs">{assistant.user_id || 'N/A'}</dd>
+              <dd className="text-gray-600 font-mono text-xs">{agent.user_id || 'N/A'}</dd>
             </div>
           </dl>
         </div>
