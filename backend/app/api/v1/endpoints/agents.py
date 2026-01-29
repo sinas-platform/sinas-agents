@@ -199,6 +199,12 @@ async def update_agent(
         agent.max_tokens = agent_data.max_tokens
     if agent_data.system_prompt is not None:
         agent.system_prompt = agent_data.system_prompt
+    if agent_data.input_schema is not None:
+        agent.input_schema = agent_data.input_schema
+    if agent_data.output_schema is not None:
+        agent.output_schema = agent_data.output_schema
+    if agent_data.initial_messages is not None:
+        agent.initial_messages = agent_data.initial_messages
     if agent_data.enabled_functions is not None:
         agent.enabled_functions = agent_data.enabled_functions
     if agent_data.enabled_mcp_tools is not None:
