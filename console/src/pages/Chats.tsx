@@ -4,6 +4,7 @@ import { Link } from 'react-router-dom';
 import { Plus, Trash2, Search } from 'lucide-react';
 import { useState } from 'react';
 import type { ChatCreate } from '../types';
+import { SchemaFormField } from '../components/SchemaFormField';
 
 export function Chats() {
   const queryClient = useQueryClient();
@@ -240,22 +241,14 @@ export function Chats() {
                   <div className="border-t pt-4">
                     <h3 className="text-sm font-medium text-gray-900 mb-3">Input Parameters</h3>
                     {Object.entries(properties).map(([key, prop]: [string, any]) => (
-                      <div key={key} className="mb-3">
-                        <label className="block text-sm font-medium text-gray-700 mb-1">
-                          {key} {requiredFields.includes(key) && <span className="text-red-500">*</span>}
-                        </label>
-                        {prop.description && (
-                          <p className="text-xs text-gray-500 mb-1">{prop.description}</p>
-                        )}
-                        <input
-                          type={prop.type === 'number' ? 'number' : 'text'}
-                          value={inputParams[key] || ''}
-                          onChange={(e) => setInputParams({ ...inputParams, [key]: e.target.value })}
-                          placeholder={prop.default || ''}
-                          required={requiredFields.includes(key)}
-                          className="input"
-                        />
-                      </div>
+                      <SchemaFormField
+                        key={key}
+                        name={key}
+                        schema={prop}
+                        value={inputParams[key]}
+                        onChange={(value) => setInputParams({ ...inputParams, [key]: value })}
+                        required={requiredFields.includes(key)}
+                      />
                     ))}
                   </div>
                 );
